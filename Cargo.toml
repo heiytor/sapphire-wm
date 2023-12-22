@@ -7,3 +7,6 @@ edition = "2021"
 
 [dependencies]
 xcb = "*"
+# xcb-util = { version = "*", features = ["cursor", "ewmh"] }
+# xcb = { version = "0.10.1" }
+xcb-util = { version = "0.4.0", features = ["cursor", "ewmh", "keysyms"] }
