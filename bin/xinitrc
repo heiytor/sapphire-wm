@@ -1,0 +1,4 @@
+#!/bin/sh
+
+DIR=$(dirname "$(readlink -f "$0")")
+exec "$DIR/../target/debug/saphire"
