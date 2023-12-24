@@ -2,12 +2,14 @@ use std::sync::Arc;
 
 use xcb_util::{ewmh, keysyms};
 
-use crate::{actions, event_context::EventContext, util};
+use crate::{actions::Actions, event_context::EventContext, util, client::{Clients, Client}};
 
 pub struct WindowManager {
     screen_root: xcb::Window,
     conn: Arc<ewmh::Connection>,
-    pub actions: actions::Actions,
+
+    pub clients: Clients,
+    pub actions: Actions,
 }
 
 impl Default for WindowManager {
@@ -80,7 +82,10 @@ impl Default for WindowManager {
         let wm = WindowManager {
             // maybe there's a better way to do tha without cloning
             conn: conn.clone(),
-            actions: actions::Actions::new(conn.clone()),
+            actions: Actions::new(conn.clone()),
+            clients: Clients::new(conn.clone()),
+            //
+
             screen_root,
         };
 
@@ -111,7 +116,7 @@ impl WindowManager {
 }
 
 impl WindowManager {
-    pub fn run(&self) {
+    pub fn run(&mut self) {
         // Instruct XCB to send a KEY_PRESS event when the keys configured in
         // the `on_keypress` actions are pressed.
         for (_, action) in self.actions.at_keypress.iter() {
@@ -143,10 +148,7 @@ impl WindowManager {
                             };
                         },
                         xcb::CONFIGURE_REQUEST => {
-                            println!("configure_request");
                             let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
-                            println!("id {}", event.window());
-                            ewmh::set_active_window(&self.conn, 0, event.window());
 
                             let mut values = Vec::new();
                             if event.value_mask() & xcb::CONFIG_WINDOW_WIDTH as u16 > 0 {
@@ -159,20 +161,20 @@ impl WindowManager {
                             values.push((xcb::CONFIG_WINDOW_X as u16, 100 as u32));
                             values.push((xcb::CONFIG_WINDOW_Y as u16, 150 as u32));
 
-                            println!("{} {}", values[0].0, values[0].1);
-                            println!("{} {}", values[1].0, values[1].1);
-
                             xcb::configure_window(&self.conn, event.window(), &values);
                         },
                         xcb::MAP_REQUEST => {
-                            println!("map_request");
                             let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
                             xcb::map_window(&self.conn, event.window());
+                            self.clients.manage(Client::new(event.window()));
                         },
                         xcb::PROPERTY_NOTIFY => println!("property_notify"),
                         xcb::ENTER_NOTIFY => println!("enter_notify"),
                         xcb::UNMAP_NOTIFY => println!("unmap_notify"),
-                        xcb::DESTROY_NOTIFY => println!("destroy_notify"),
+                        xcb::DESTROY_NOTIFY => {
+                            let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
+                            self.clients.unmanage(event.window());
+                        },
                         _ => println!("i"),
                     }
 
