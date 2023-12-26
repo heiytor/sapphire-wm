@@ -5,7 +5,6 @@ use xcb_util::{ewmh, keysyms};
 use crate::{actions::Actions, event_context::EventContext, util, client::{Clients, Client}};
 
 pub struct WindowManager {
-    screen_root: xcb::Window,
     conn: Arc<ewmh::Connection>,
 
     pub clients: Clients,
@@ -34,19 +33,19 @@ impl Default for WindowManager {
             &conn,
             screen_num,
             &[
-            conn.SUPPORTED(),
-            conn.SUPPORTING_WM_CHECK(),
-            conn.ACTIVE_WINDOW(),
-            conn.CLIENT_LIST(),
-            conn.CURRENT_DESKTOP(),
-            conn.DESKTOP_NAMES(),
-            conn.NUMBER_OF_DESKTOPS(),
-            conn.WM_STATE(),
-            conn.WM_STATE_FULLSCREEN(),
-            conn.WM_WINDOW_TYPE(),
-            conn.WM_WINDOW_TYPE_DIALOG(),
+                conn.SUPPORTED(),
+                conn.SUPPORTING_WM_CHECK(),
+                conn.ACTIVE_WINDOW(),
+                conn.CLIENT_LIST(),
+                // conn.CURRENT_DESKTOP(), *
+                // conn.DESKTOP_NAMES(), *
+                // conn.NUMBER_OF_DESKTOPS(), *
+                // conn.WM_STATE(),
+                // conn.WM_STATE_FULLSCREEN(),
+                // conn.WM_WINDOW_TYPE(),
+                // conn.WM_WINDOW_TYPE_DIALOG(),
             ],
-            );
+        );
 
         let cursor = xcb_util::cursor::create_font_cursor(&conn, xcb_util::cursor::LEFT_PTR);
         let cookie = xcb::change_window_attributes_checked(&conn, screen.root(), &[(xcb::CW_CURSOR, cursor)]);
@@ -74,19 +73,15 @@ impl Default for WindowManager {
         ewmh::set_supporting_wm_check(&conn, screen.root(), window);
         ewmh::set_wm_name(&conn, window, "sapphire");
 
-        let screen_root = screen.root();
-        let conn = Arc::new(conn);
-        
         conn.flush();
+
+        let conn = Arc::new(conn);
 
         let wm = WindowManager {
             // maybe there's a better way to do tha without cloning
             conn: conn.clone(),
             actions: Actions::new(conn.clone()),
             clients: Clients::new(conn.clone()),
-            //
-
-            screen_root,
         };
 
         wm
@@ -94,6 +89,17 @@ impl Default for WindowManager {
 }
 
 impl WindowManager {
+    /// NOTE:
+    /// For now, sapphire does not support multiple monitors and due to rust's
+    /// lifetimes and how xcb::Screen needs conn, it's really hard to use screen
+    /// as an atributte. 
+    /// TODO:
+    /// support for multiscreen.
+    #[inline]
+    pub(self) fn screen(&self) -> xcb::Screen {
+        self.conn.get_setup().roots().next().unwrap()
+    }
+
     pub(self) fn register_keybind(&self, modkey: u16, ch: char) {
         let key_symbols = keysyms::KeySymbols::new(&self.conn);
         match key_symbols.get_keycode(util::to_keysym(ch)).next() {
@@ -101,7 +107,7 @@ impl WindowManager {
                 xcb::grab_key(
                     &self.conn,
                     false,
-                    self.screen_root,
+                    self.screen().root(),
                     modkey,
                     keycode,
                     xcb::GRAB_MODE_ASYNC as u8,
@@ -126,7 +132,7 @@ impl WindowManager {
         // Execute each handler for the `on_startup` actions when starting the
         // window manager.
         for action in &self.actions.at_startup {
-            action.exec();
+            action.exec().unwrap()/*.map_err(|e| util::notify_wm_error(e))*/;
         }
 
         self.conn.flush();
@@ -138,8 +144,8 @@ impl WindowManager {
 
                     let response_type = event.response_type() & !0x80;
                     match response_type {
-                        xcb::CREATE_NOTIFY => println!("create_notify"),
-                        xcb::CLIENT_MESSAGE => println!("client_message"),
+                        // xcb::CREATE_NOTIFY => println!("create_notify"),
+                        // xcb::CLIENT_MESSAGE => println!("client_message"),
                         xcb::KEY_PRESS => {
                             let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
                             match self.actions.at_keypress.get(&event.detail()) {
@@ -151,15 +157,17 @@ impl WindowManager {
                             let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
 
                             let mut values = Vec::new();
-                            if event.value_mask() & xcb::CONFIG_WINDOW_WIDTH as u16 > 0 {
-                                values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
-                            }
-                            if event.value_mask() & xcb::CONFIG_WINDOW_HEIGHT as u16 > 0 {
-                                values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
-                            }
+                            // if event.value_mask() & xcb::CONFIG_WINDOW_WIDTH as u16 > 0 {
+                            //     values.push((xcb::CONFIG_WINDOW_WIDTH as u16, 100 as u32));
+                            // }
+                            // if event.value_mask() & xcb::CONFIG_WINDOW_HEIGHT as u16 > 0 {
+                            //     values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, 50 as u32));
+                            // }
 
-                            values.push((xcb::CONFIG_WINDOW_X as u16, 100 as u32));
-                            values.push((xcb::CONFIG_WINDOW_Y as u16, 150 as u32));
+                            values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
+                            values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
+                            values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
+                            values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
 
                             xcb::configure_window(&self.conn, event.window(), &values);
                         },
@@ -167,15 +175,17 @@ impl WindowManager {
                             let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
                             xcb::map_window(&self.conn, event.window());
                             self.clients.manage(Client::new(event.window()));
+                            self.clients.resize_tiles(self.screen());
                         },
-                        xcb::PROPERTY_NOTIFY => println!("property_notify"),
-                        xcb::ENTER_NOTIFY => println!("enter_notify"),
-                        xcb::UNMAP_NOTIFY => println!("unmap_notify"),
+                        // xcb::PROPERTY_NOTIFY => println!("property_notify"),
+                        // xcb::ENTER_NOTIFY => println!("enter_notify"),
+                        // xcb::UNMAP_NOTIFY => println!("unmap_notify"),
                         xcb::DESTROY_NOTIFY => {
                             let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
                             self.clients.unmanage(event.window());
+                            self.clients.resize_tiles(self.screen());
                         },
-                        _ => println!("i"),
+                        _ => (),
                     }
 
                     self.conn.flush();

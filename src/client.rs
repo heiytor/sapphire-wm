@@ -48,6 +48,43 @@ impl Clients {
         let last_wid: u32 = last_wid.unwrap_or(xcb::WINDOW_NONE);
         self.set_active(last_wid);
     }
+
+    pub fn resize_tiles(&self, screen: xcb::Screen) {
+        let mut x = 0;
+        let y = 0;
+
+        if self.clients.len() == 1 {
+            xcb::configure_window(
+                &self.conn,
+                self.clients[0].wid,
+                &[
+                    (xcb::CONFIG_WINDOW_X as u16, x as u32),
+                    (xcb::CONFIG_WINDOW_Y as u16, y as u32),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen.width_in_pixels() as u32),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen.height_in_pixels() as u32),
+                ],
+            );
+
+            return
+        }
+
+        for client in self.clients.iter() {
+            // do something
+
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_X as u16, x as u32),
+                    (xcb::CONFIG_WINDOW_Y as u16, y as u32),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, (screen.width_in_pixels() / 2) as u32),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, (screen.height_in_pixels()/*  / 2 */) as u32),
+                ],
+            );
+            
+            x += screen.width_in_pixels() / 2;
+        }
+    }
 }
 
 impl Clients {
