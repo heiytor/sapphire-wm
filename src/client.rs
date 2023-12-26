@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
 
@@ -12,18 +12,32 @@ impl Client {
     }
 }
 
+pub struct Config {
+    /// Windows border in pixels.
+    pub border: u32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config { border: 0 }
+    }
+}
+
 pub struct Clients {
     /// EWMH connection.
     conn: Arc<ewmh::Connection>,
     /// Currently managed X windows.
-    clients: Vec<Client>,
+    clients: VecDeque<Client>,
+
+    pub config: Config,
 }
 
 impl Clients {
     pub fn new(conn: Arc<ewmh::Connection>) -> Self {
         Clients {
             conn,
-            clients: Vec::new(),
+            clients: VecDeque::new(),
+            config: Config::default(),
         }
     }
 }
@@ -35,7 +49,7 @@ impl Clients {
     pub fn manage(&mut self, client: Client) {
         self.refresh_client_list();
         self.set_active(client.wid);
-        self.clients.push(client);
+        self.clients.push_front(client);
     }
 
     /// Unmanages an X Window. Removes it from the "_NET_CLIENT_LIST", and if the window
@@ -44,50 +58,56 @@ impl Clients {
         self.refresh_client_list();
         self.clients.retain(|c| c.wid != wid);
 
-        let last_wid: Option<u32> = self.clients.last().map(|c| c.wid);
+        let last_wid: Option<u32> = self.clients.front().map(|c| c.wid);
         let last_wid: u32 = last_wid.unwrap_or(xcb::WINDOW_NONE);
         self.set_active(last_wid);
     }
 
     pub fn resize_tiles(&self, screen: xcb::Screen) {
-        if  self.clients.len() == 1 {
-            let client = &self.clients[0];
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_X as u16, 0),
-                    (xcb::CONFIG_WINDOW_Y as u16, 0),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen.width_in_pixels() as u32),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen.height_in_pixels() as u32),
-                ],
-            );
-            return;
-        }
+        // ....
+        let screen_w = screen.width_in_pixels() as u32;
+        let screen_h = screen.height_in_pixels() as u32;
 
-        let mut x = 0;
-        let mut y = 0;
-        let mut width = screen.width_in_pixels() as usize;
-        let mut height = screen.height_in_pixels() as usize;
+        // Starting tilling at top-right
+        let mut window_x: u32 = 0;
+        let mut window_y: u32 = 0;
 
-        let foo = height / (self.clients.len() - 1);
+        // ...
+        let mut window_h: u32 = screen_h - self.config.border * 2;
+        let mut window_w: u32 = if self.clients.len() == 1 { 
+            screen_w - self.config.border * 2
+        } else { 
+            screen_w / 2 - self.config.border
+        };
 
         for (i, client) in self.clients.iter().enumerate() {
             if i > 0 {
-                x = screen.width_in_pixels() / 2;
-                width = (screen.width_in_pixels() / 2) as usize;
-                height = foo;
-                y = foo * (i-1);
+                // Since the master window always fills the left-middle of the
+                // screen, the other windows will only occupy the right-middle portion.
+                window_w = (screen_w / 2) - self.config.border * 2;
+                window_x = screen_w / 2;
+
+                // Adjusting the height for each window located in the right-middle portion of the screen
+                // to ensure they fit proportionally based on the total number of windows.
+                let height_per_window = screen_h / (self.clients.len() - 1) as u32;
+
+                window_y = height_per_window * (i - 1) as u32;
+                window_h = if client.wid == self.clients.back().unwrap().wid {
+                    height_per_window - (self.config.border * 2)
+                } else {
+                    height_per_window - self.config.border
+                };
             }
 
             xcb::configure_window(
                 &self.conn,
                 client.wid,
                 &[
-                    (xcb::CONFIG_WINDOW_X as u16, x as u32),
-                    (xcb::CONFIG_WINDOW_Y as u16, y as u32),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, width as u32),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, height as u32),
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, self.config.border),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, window_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, window_w),
+                    (xcb::CONFIG_WINDOW_X as u16, window_x),
+                    (xcb::CONFIG_WINDOW_Y as u16, window_y),
                 ],
             );
         }
