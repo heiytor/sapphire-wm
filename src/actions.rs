@@ -23,12 +23,12 @@ impl Actions {
 
 impl Actions {
     #[inline]
-    pub fn new_on_startup(&mut self, action: OnStartupAction) {
+    pub fn on_startup(&mut self, action: OnStartupAction) {
         self.at_startup.push(action);
     }
 
     #[inline]
-    pub fn new_on_keypress(&mut self, action: OnKeypressAction) {
+    pub fn on_keypress(&mut self, action: OnKeypressAction) {
         let key_symbols = keysyms::KeySymbols::new(&self.conn);
         match key_symbols.get_keycode(util::to_keysym(action.ch)).next() {
             Some(keycode) => self.at_keypress.insert(keycode, action),
