@@ -11,13 +11,14 @@ use window_manager::WindowManager;
 fn main() {
     let mut wm = WindowManager::default();
 
-    wm.actions.new_on_startup(OnStartupAction::new(|| println!("action 1")));
-    wm.actions.new_on_startup(OnStartupAction::new(|| println!("action 2")));
-    wm.actions.new_on_startup(OnStartupAction::spawn_process("xterm".to_string()));
+    wm.actions.new_on_startup(OnStartupAction::new(|| {
+        println!("from startup!");
+        Ok(())
+    }));
 
     let modkey = xcb::MOD_MASK_4 as u16;
-    wm.actions.new_on_keypress(OnKeypressAction::kill_process(modkey, 'y'));
-    wm.actions.new_on_keypress(OnKeypressAction::spawn_process(modkey, 'v', "alacritty".to_string()));
+    wm.actions.new_on_keypress(OnKeypressAction::new(modkey, 'v', OnKeypressAction::spawn("alacritty")));
+    wm.actions.new_on_keypress(OnKeypressAction::new(modkey, 'y', OnKeypressAction::kill_process()));
 
     wm.run();
 }

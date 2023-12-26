@@ -1,28 +1,20 @@
 pub struct OnStartupAction {
     /// TODO: return an error instead of unwrap.
-    cb: Box<dyn Fn()>,
+    callback: Box<dyn Fn() -> Result<(), String>>,
 }
 
 #[allow(dead_code)]
 impl OnStartupAction {
-    pub fn new(handler: impl Fn() + 'static) -> Self {
+    pub fn new(callback: impl Fn() -> Result<(), String> + 'static) -> Self {
         OnStartupAction { 
-            cb: Box::new(handler),
-        }
-    }
-    
-    pub fn spawn_process(process: String) -> Self {
-        OnStartupAction {
-            cb: Box::new(move || {
-                std::process::Command::new(&process).spawn().unwrap();
-            }),
+            callback: Box::new(callback),
         }
     }
 }
 
 impl OnStartupAction {
     #[inline]
-    pub fn exec(&self) {
-        (self.cb)()
+    pub fn exec(&self) -> Result<(), String> {
+        (self.callback)()
     }
 }
