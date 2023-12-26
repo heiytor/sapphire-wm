@@ -50,26 +50,35 @@ impl Clients {
     }
 
     pub fn resize_tiles(&self, screen: xcb::Screen) {
-        let mut x = 0;
-        let y = 0;
-
-        if self.clients.len() == 1 {
+        if  self.clients.len() == 1 {
+            let client = &self.clients[0];
             xcb::configure_window(
                 &self.conn,
-                self.clients[0].wid,
+                client.wid,
                 &[
-                    (xcb::CONFIG_WINDOW_X as u16, x as u32),
-                    (xcb::CONFIG_WINDOW_Y as u16, y as u32),
+                    (xcb::CONFIG_WINDOW_X as u16, 0),
+                    (xcb::CONFIG_WINDOW_Y as u16, 0),
                     (xcb::CONFIG_WINDOW_WIDTH as u16, screen.width_in_pixels() as u32),
                     (xcb::CONFIG_WINDOW_HEIGHT as u16, screen.height_in_pixels() as u32),
                 ],
             );
-
-            return
+            return;
         }
 
-        for client in self.clients.iter() {
-            // do something
+        let mut x = 0;
+        let mut y = 0;
+        let mut width = screen.width_in_pixels() as usize;
+        let mut height = screen.height_in_pixels() as usize;
+
+        let foo = height / (self.clients.len() - 1);
+
+        for (i, client) in self.clients.iter().enumerate() {
+            if i > 0 {
+                x = screen.width_in_pixels() / 2;
+                width = (screen.width_in_pixels() / 2) as usize;
+                height = foo;
+                y = foo * (i-1);
+            }
 
             xcb::configure_window(
                 &self.conn,
@@ -77,12 +86,10 @@ impl Clients {
                 &[
                     (xcb::CONFIG_WINDOW_X as u16, x as u32),
                     (xcb::CONFIG_WINDOW_Y as u16, y as u32),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, (screen.width_in_pixels() / 2) as u32),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, (screen.height_in_pixels()/*  / 2 */) as u32),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, width as u32),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, height as u32),
                 ],
             );
-            
-            x += screen.width_in_pixels() / 2;
         }
     }
 }
