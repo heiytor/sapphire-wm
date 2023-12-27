@@ -2,13 +2,19 @@ use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
 
+use crate::util;
+
 pub struct Client {
     wid: u32,
+    is_fullscreen: bool,
 }
 
 impl Client {
     pub fn new(wid: u32) -> Self {
-        Client { wid }
+        Client { 
+            wid,
+            is_fullscreen: false,
+        }
     }
 }
 
@@ -19,17 +25,25 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
-        Config { border: 0 }
+        Config { border: 8 }
     }
 }
 
 pub struct Clients {
+    pub config: Config,
+
     /// EWMH connection.
     conn: Arc<ewmh::Connection>,
+
     /// Currently managed X windows.
     clients: VecDeque<Client>,
 
-    pub config: Config,
+    // TODO: Each screen have its own active_client, and probably each workspace as well. Maybe this can
+    // be a HashMap where the key is the screen, and the value is an array of wid, with each index
+    // representing the workspace.
+    //
+    /// Index of the current active client among the managed clients.
+    active_client: usize,
 }
 
 impl Clients {
@@ -38,6 +52,7 @@ impl Clients {
             conn,
             clients: VecDeque::new(),
             config: Config::default(),
+            active_client: 0,
         }
     }
 }
@@ -47,20 +62,24 @@ impl Clients {
     /// "_NET_CLIENT_LIST" to include the created window and sets it as the
     /// "_NET_ACTIVE_WINDOW".
     pub fn manage(&mut self, client: Client) {
-        self.refresh_client_list();
-        self.set_active(client.wid);
+        // TODO.
+        let client_wid = client.wid;
+
         self.clients.push_front(client);
+        self.set_active(client_wid);
+        self.refresh_client_list();
     }
 
     /// Unmanages an X Window. Removes it from the "_NET_CLIENT_LIST", and if the window
     /// is the "_NET_ACTIVE_WINDOW", sets the last created window as active.
     pub fn unmanage(&mut self, wid: u32) {
-        self.refresh_client_list();
         self.clients.retain(|c| c.wid != wid);
 
         let last_wid: Option<u32> = self.clients.front().map(|c| c.wid);
         let last_wid: u32 = last_wid.unwrap_or(xcb::WINDOW_NONE);
+
         self.set_active(last_wid);
+        self.refresh_client_list();
     }
 
     pub fn resize_tiles(&self, screen: xcb::Screen) {
@@ -80,7 +99,7 @@ impl Clients {
             screen_w / 2 - self.config.border
         };
 
-        for (i, client) in self.clients.iter().enumerate() {
+        for (i, client) in self.clients.iter().filter(|c| !c.is_fullscreen).enumerate() {
             if i > 0 {
                 // Since the master window always fills the left-middle of the
                 // screen, the other windows will only occupy the right-middle portion.
@@ -111,6 +130,76 @@ impl Clients {
                 ],
             );
         }
+
+        // Fullscreen windows
+        for client in self.clients.iter().filter(|c| c.is_fullscreen) {
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
+                    (xcb::CONFIG_WINDOW_X as u16, 0),
+                    (xcb::CONFIG_WINDOW_Y as u16, 0),
+                ],
+            );
+        }
+
+        self.conn.flush();
+    }
+}
+
+pub enum Dir {
+    Left,
+    Right,
+}
+
+impl Clients {
+    pub fn move_focus(&mut self, dir: Dir) {
+        let (idx, default_idx) = match dir {
+            Dir::Right => (self.active_client + 1, 0),
+            Dir::Left => {
+                (
+                    self.active_client.
+                        checked_sub(1).
+                        unwrap_or_else(|| self.clients.len() - 1),
+                    0,
+                )
+            }
+        };
+
+        let wid: u32 = self.clients.get(idx).map_or_else(
+            || self.clients[default_idx].wid,
+            |client| client.wid,
+        );
+
+        self.set_active(wid);
+    }
+
+    // TODO: error handling
+    pub fn toggle_fullscreen(&mut self) {
+        let active_client = &mut self.clients[self.active_client];
+
+        active_client.is_fullscreen = !active_client.is_fullscreen;
+
+        let data = if active_client.is_fullscreen {
+            self.conn.WM_STATE_FULLSCREEN()
+        } else {
+            0
+        };
+
+        xcb::change_property(
+            &self.conn,
+            xcb::PROP_MODE_REPLACE as u8,
+            active_client.wid,
+            self.conn.WM_STATE(),
+            xcb::ATOM_ATOM,
+            32,
+            &[data],
+        );
+
+        self.resize_tiles(util::get_screen(&self.conn));
     }
 }
 
@@ -125,9 +214,19 @@ impl Clients {
         );
     }
 
-    /// Sets the active window to the specified window ID.
+    /// Sets the active window to the specified window ID. Configure the "_NET_ACTIVE_WINDOW" and
+    /// sets the input focus.
     #[inline]
-    pub(self) fn set_active(&self, wid: u32) {
-        ewmh::set_active_window(&self.conn, 0, wid);
+    pub(self) fn set_active(&mut self, wid: u32) {
+        if let Some(idx) = self.clients.iter().position(|c| c.wid == wid) {
+            self.active_client = idx;
+            ewmh::set_active_window(&self.conn, 0, wid);
+            xcb::set_input_focus(
+                &self.conn,
+                xcb::INPUT_FOCUS_PARENT as u8,
+                wid,
+                xcb::CURRENT_TIME,
+            );
+        }
     }
 }
