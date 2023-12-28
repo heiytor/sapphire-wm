@@ -39,4 +39,11 @@ impl OnKeypressAction {
             Ok(())
         })
     }
+
+    pub fn swap_master() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
+        Box::new(move |ctx| {
+            ctx.clients.lock().unwrap().swap_master();
+            Ok(())
+        })
+    }
 }

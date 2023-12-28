@@ -141,11 +141,13 @@ impl WindowManager {
                     let response_type = event.response_type() & !0x80;
                     match response_type {
                         // xcb::CREATE_NOTIFY => println!("create_notify"),
-                        // xcb::CLIENT_MESSAGE => println!("client_message"),
+                        xcb::CLIENT_MESSAGE => println!("client_message"),
                         xcb::KEY_PRESS => {
                             let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
                             match self.actions.at_keypress.get(&event.detail()) {
-                                Some(action) => action.exec(ctx).unwrap(),
+                                Some(action) => {
+                                    _ = action.exec(ctx).map_err(|e| util::notify_error(e));
+                                },
                                 None => {},
                             };
                         },
@@ -173,7 +175,7 @@ impl WindowManager {
                         },
                         // xcb::PROPERTY_NOTIFY => println!("property_notify"),
                         // xcb::ENTER_NOTIFY => println!("enter_notify"),
-                        // xcb::UNMAP_NOTIFY => println!("unmap_notify"),
+                        xcb::UNMAP_NOTIFY => println!("unmap_notify"),
                         xcb::DESTROY_NOTIFY => {
                             let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
 

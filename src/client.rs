@@ -155,7 +155,21 @@ pub enum Dir {
     Right,
 }
 
+const MASTER_CLIENT: usize = 0; 
+
 impl Clients {
+    /// Swaps the master client to the active client. If the active client is already the
+    /// master, do nothing.
+    pub fn swap_master(&mut self) {
+        if self.active_client == 0 {
+            return
+        }
+
+        self.clients.swap(MASTER_CLIENT, self.active_client);
+        self.set_active(self.clients[MASTER_CLIENT].wid);
+        self.resize_tiles(util::get_screen(&self.conn));
+    }
+
     pub fn move_focus(&mut self, dir: Dir) {
         let (idx, default_idx) = match dir {
             Dir::Right => (self.active_client + 1, 0),

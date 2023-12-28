@@ -13,3 +13,7 @@ pub fn to_keysym(ch: char) -> u32 {
 pub fn get_screen(conn: &xcb::Connection) -> xcb::Screen {
     conn.get_setup().roots().next().unwrap()
 }
+
+pub fn notify_error(e: String) {
+    println!("WM error: {}", e);
+}
