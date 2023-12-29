@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::{sync::{Arc, Mutex}, os::unix::process::CommandExt};
 
 use xcb_util::{ewmh, keysyms};
 
@@ -178,19 +178,25 @@ impl WindowManager {
                             };
                         },
                         xcb::CONFIGURE_REQUEST => {
+                            println!("configure_request");
                             let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
 
-                            let mut values = Vec::new();
-                            values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
-                            values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
-                            values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
-                            values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
-
-                            xcb::configure_window(&self.conn, event.window(), &values);
+                            // let mut values = Vec::new();
+                            println!("{} {} {}", event.window(), event.width(), event.height());
+                            // values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
+                            // values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
+                            // values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
+                            // values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
+                            //
+                            // xcb::configure_window(&self.conn, event.window(), &values);
+                            self.conn.flush();
+                            // let clients = self.clients.lock().unwrap();
+                            // clients.resize_tiles(util::get_screen(&self.conn));
                         },
                         xcb::MAP_REQUEST => {
                             let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
                             xcb::map_window(&self.conn, event.window());
+                            println!("map window: {}", event.window());
 
                             {
                                 let mut clients = self.clients.lock().unwrap();
@@ -199,8 +205,40 @@ impl WindowManager {
                                     break;
                                 }
 
-                                clients.manage(Client::new(event.window()));
-                                clients.resize_tiles(util::get_screen(&self.conn));
+                                let mut client = Client::new(event.window());
+
+                                let cookie = ewmh::get_wm_window_type(&self.conn, event.window()).get_reply();
+                                if let Ok(type_) = cookie {
+                                    for atom in type_.atoms() {
+                                        if *atom == self.conn.WM_WINDOW_TYPE_DOCK() {
+                                            println!("dock");
+                                            client.set_docker();
+                                            client.remove_controll();
+                                        }
+
+                                        if *atom == self.conn.WM_WINDOW_TYPE_TOOLBAR() {
+                                            println!("toolbar");
+                                        }
+
+                                        if *atom == self.conn.WM_WINDOW_TYPE_MENU() {
+                                            println!("menu");
+                                        }
+
+                                        if *atom == self.conn.WM_WINDOW_TYPE_DIALOG() {
+                                            println!("dialog");
+                                        }
+                                    }
+                                }
+
+                                if let Ok (strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
+                                    println!("padding top: {} | bottom: {} | left: {} | right: {}", strut.top, strut.bottom, strut.left, strut.right);
+                                    client.padding_top = strut.top;
+                                    client.padding_bottom = strut.bottom;
+                                    client.padding_left = strut.left;
+                                    client.padding_right = strut.right;
+                                };
+
+                                clients.manage(client);
                             };
                         },
                         // xcb::PROPERTY_NOTIFY => println!("property_notify"),
@@ -213,7 +251,6 @@ impl WindowManager {
                                 // TODO: handle errors
                                 let mut clients = self.clients.lock().unwrap();
                                 clients.unmanage(event.window());
-                                clients.resize_tiles(util::get_screen(&self.conn));
                             };
                         },
                         _ => (),
