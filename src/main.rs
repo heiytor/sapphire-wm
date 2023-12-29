@@ -19,9 +19,9 @@ fn main() {
 
     let modkey = xcb::MOD_MASK_4 as u16;
     // wm.actions.on_keypress(OnKeypressAction::new(modkey, 'v', OnKeypressAction::spawn("google-chrome_stable")));
-    wm.actions.on_keypress(OnKeypressAction::new(modkey, 'v', OnKeypressAction::toggle_fullscreen()));
-    wm.actions.on_keypress(OnKeypressAction::new(modkey, 'z', OnKeypressAction::swap_master()));
-    wm.actions.on_keypress(OnKeypressAction::new(modkey, 'y', OnKeypressAction::focus_right()));
+    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::toggle_fullscreen()));
+    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'z', OnKeypressAction::swap_master()));
+    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'y', OnKeypressAction::focus_right()));
     // wm.actions.on_keypress(OnKeypressAction::new(modkey, 'z', OnKeypressAction::focus_left()));
 
     wm.mouse.disable_sloppy_focus();

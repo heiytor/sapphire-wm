@@ -117,7 +117,10 @@ impl WindowManager {
         // Instruct XCB to send a KEY_PRESS event when the keys configured in
         // the `on_keypress` actions are pressed.
         for (_, action) in self.actions.at_keypress.iter() {
-            self.register_keybind(action.modkey, action.ch);
+            self.register_keybind(
+                action.modkey.iter().fold(0, |acc, &val| acc | val),
+                action.ch,
+            );
         }
 
         // Execute each handler for the `on_startup` actions when starting the
