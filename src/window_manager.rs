@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::{ewmh, keysyms};
 
-use crate::{actions::Actions, event_context::EventContext, util, client::{Clients, Client}, mouse::Mouse};
+use crate::{actions::Actions, event_context::EventContext, util, client::{Clients, Client, ClientState}, mouse::Mouse};
 
 pub struct WindowManager {
     conn: Arc<ewmh::Connection>,
@@ -43,7 +43,6 @@ impl Default for WindowManager {
                 // conn.NUMBER_OF_DESKTOPS(), *
                 conn.WM_STATE(),
                 conn.WM_STATE_FULLSCREEN(),
-                conn.WM_ACTION_FULLSCREEN(),
                 // conn.WM_WINDOW_TYPE(),
                 // conn.WM_WINDOW_TYPE_DIALOG(),
             ],
@@ -124,7 +123,7 @@ impl WindowManager {
         // Execute each handler for the `on_startup` actions when starting the
         // window manager.
         for action in &self.actions.at_startup {
-            action.exec().unwrap()/*.map_err(|e| util::notify_wm_error(e))*/;
+            _ = action.exec().map_err(|e| util::notify_error(e));
         }
 
         self.conn.flush();
@@ -141,7 +140,31 @@ impl WindowManager {
                     let response_type = event.response_type() & !0x80;
                     match response_type {
                         // xcb::CREATE_NOTIFY => println!("create_notify"),
-                        xcb::CLIENT_MESSAGE => println!("client_message"),
+                        xcb::CLIENT_MESSAGE => {
+                            let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
+                            if event.type_() == self.conn.WM_STATE() {
+                                // SEE:
+                                // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
+                                let data = event.data().data32();
+
+                                let action = match data[0] {
+                                    ewmh::STATE_ADD => ClientState::Add,
+                                    ewmh::STATE_REMOVE => ClientState::Remove,
+                                    ewmh::STATE_TOGGLE => ClientState::Toggle,
+                                    _ => ClientState::Unknown,
+                                };
+                                let property = data[1];
+
+                                {
+                                    let mut clients = self.clients.lock().unwrap();
+                                    if property == self.conn.WM_STATE_FULLSCREEN() {
+                                        _ = clients
+                                            .set_fullscreen(event.window(), action)
+                                            .map_err(|e| util::notify_error(e));
+                                    }
+                                };
+                            }
+                        },
                         xcb::KEY_PRESS => {
                             let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
                             match self.actions.at_keypress.get(&event.detail()) {
@@ -167,8 +190,12 @@ impl WindowManager {
                             xcb::map_window(&self.conn, event.window());
 
                             {
-                                // TODO: handle errors
                                 let mut clients = self.clients.lock().unwrap();
+
+                                if clients.contains(event.window()) {
+                                    break;
+                                }
+
                                 clients.manage(Client::new(event.window()));
                                 clients.resize_tiles(util::get_screen(&self.conn));
                             };

@@ -1,6 +1,7 @@
-use crate::client::Dir;
+use crate::client::{Dir, ClientState};
 use crate::event_context::EventContext;
 use crate::action::on_keypress::OnKeypressAction;
+use crate::util;
 
 #[allow(dead_code)]
 impl OnKeypressAction {
@@ -35,7 +36,10 @@ impl OnKeypressAction {
 
     pub fn toggle_fullscreen() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
         Box::new(move |ctx| {
-            ctx.clients.lock().unwrap().toggle_fullscreen();
+            _ = ctx.clients.lock().unwrap()
+                .set_fullscreen(0, ClientState::Toggle)
+                .map_err(|e| util::notify_error(e));
+
             Ok(())
         })
     }

@@ -155,7 +155,14 @@ pub enum Dir {
     Right,
 }
 
-const MASTER_CLIENT: usize = 0; 
+pub enum ClientState {
+    Add,
+    Remove,
+    Toggle,
+    Unknown,
+}
+
+pub const MASTER_CLIENT: usize = 0; 
 
 impl Clients {
     /// Swaps the master client to the active client. If the active client is already the
@@ -191,22 +198,45 @@ impl Clients {
         self.set_active(wid);
     }
 
-    // TODO: error handling
-    pub fn toggle_fullscreen(&mut self) {
-        let active_client = &mut self.clients[self.active_client];
+    /// Verifies if the client with the ID 'wid' is already being managed.
+    #[inline]
+    pub fn contains(&self, wid: u32) -> bool {
+        self.clients.iter().any(|c| c.wid == wid)
+    }
 
-        active_client.is_fullscreen = !active_client.is_fullscreen;
-
-        let data = if active_client.is_fullscreen {
-            self.conn.WM_STATE_FULLSCREEN()
+    /// Sets the fullscreen state for the clients with wid based on the specified state `state`.
+    /// If the wid is equal to 0, sets for the active client.
+    pub fn set_fullscreen(&mut self, wid: u32, state: ClientState) -> Result<(), String> {
+        let client: &mut Client = if wid != 0 {
+            match self.clients.iter_mut().find(|c| c.wid == wid) {
+                Some(client) => client,
+                None => return Err(format!("Client with wid {} not found", wid)),
+            }
         } else {
-            0
+            match self.clients.get_mut(0) {
+                Some(client) => client,
+                None => return Err("No clients available".to_string()),
+            }
         };
+
+        let status = match state {
+            ClientState::Add => true,
+            ClientState::Remove => false,
+            ClientState::Toggle => !client.is_fullscreen,
+            ClientState::Unknown => return Err("Invalid state.".to_string()),
+        };
+
+        if status == client.is_fullscreen {
+            return Ok(())
+        }
+
+        let data = if status { self.conn.WM_STATE_FULLSCREEN() } else { 0 };
+        client.is_fullscreen = status;
 
         xcb::change_property(
             &self.conn,
             xcb::PROP_MODE_REPLACE as u8,
-            active_client.wid,
+            client.wid,
             self.conn.WM_STATE(),
             xcb::ATOM_ATOM,
             32,
@@ -214,6 +244,7 @@ impl Clients {
         );
 
         self.resize_tiles(util::get_screen(&self.conn));
+        Ok(())
     }
 }
 
