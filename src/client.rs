@@ -89,7 +89,7 @@ impl Clients {
         self.clients.push_front(client);
         self.set_active(client_wid);
         self.refresh_client_list();
-        self.resize_tiles(util::get_screen(&self.conn));
+        // self.resize_tiles(util::get_screen(&self.conn));
     }
 
     /// Unmanages an X Window. Removes it from the "_NET_CLIENT_LIST", and if the window
@@ -106,7 +106,6 @@ impl Clients {
     }
 
     pub fn resize_tiles(&self, screen: xcb::Screen) {
-        println!("resize_tiles");
         // ....
         let screen_w = screen.width_in_pixels() as u32;
         let screen_h = screen.height_in_pixels() as u32;
@@ -138,6 +137,7 @@ impl Clients {
             available_w / 2 - self.config.border
         };
 
+        println!("------------------------------------");
         for (i, client) in normal_clients.iter().enumerate() {
             if i > 0 {
                 // Since the master window always fills the left-middle of the
@@ -158,7 +158,7 @@ impl Clients {
             }
 
             println!("resize window: {}", client.wid);
-            println!("{} {}", window_x, window_y);
+            // println!("{} {}", window_x, window_y);
             xcb::configure_window(
                 &self.conn,
                 client.wid,

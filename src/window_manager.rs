@@ -178,17 +178,17 @@ impl WindowManager {
                             };
                         },
                         xcb::CONFIGURE_REQUEST => {
-                            println!("configure_request");
                             let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
+                            println!("configure_request {}", event.window());
+                            println!("{} {}", event.width(), event.height());
 
-                            // let mut values = Vec::new();
-                            println!("{} {} {}", event.window(), event.width(), event.height());
-                            // values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
-                            // values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
-                            // values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
-                            // values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
-                            //
-                            // xcb::configure_window(&self.conn, event.window(), &values);
+                            let mut values = Vec::new();
+                            values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
+                            values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
+                            values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
+                            values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
+
+                            xcb::configure_window(&self.conn, event.window(), &values);
                             self.conn.flush();
                             // let clients = self.clients.lock().unwrap();
                             // clients.resize_tiles(util::get_screen(&self.conn));
@@ -239,6 +239,7 @@ impl WindowManager {
                                 };
 
                                 clients.manage(client);
+                                clients.resize_tiles(util::get_screen(&self.conn));
                             };
                         },
                         // xcb::PROPERTY_NOTIFY => println!("property_notify"),
