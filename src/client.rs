@@ -306,6 +306,7 @@ impl Clients {
         self.resize_tiles(util::get_screen(&self.conn));
         Ok(())
     }
+
 }
 
 impl Clients {

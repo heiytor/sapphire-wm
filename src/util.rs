@@ -1,3 +1,5 @@
+use xcb_util::ewmh;
+
 #[inline]
 pub fn to_keysym(ch: char) -> u32 {
     ch as u32
@@ -28,4 +30,11 @@ pub fn get_screen(conn: &xcb::Connection) -> xcb::Screen {
 
 pub fn notify_error(e: String) {
     println!("WM error: {}", e);
+}
+
+#[inline]
+pub fn client_has_type(conn: &ewmh::Connection, wid: u32, atom: xcb::Atom) -> bool {
+    xcb_util::ewmh::get_wm_window_type(conn, wid)
+        .get_reply()
+        .map_or(false, |w| w.atoms().contains(&atom))
 }

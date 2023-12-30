@@ -2,6 +2,7 @@ mod action;
 mod actions;
 mod client;
 mod event_context;
+mod handlers;
 mod mouse;
 mod window_manager;
 mod util;
@@ -16,15 +17,15 @@ fn main() {
     // wm.clients.config.border = 8;
 
     // wm.actions.on_startup(OnStartupAction::new(OnStartupAction::spawn("google-chrome-stable")));
-    // wm.actions.on_startup(OnStartupAction::new(OnStartupAction::spawn("polybar")));
+    wm.actions.on_startup(OnStartupAction::new(OnStartupAction::spawn("polybar")));
     // wm.actions.on_startup(OnStartupAction::new(OnStartupAction::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg"))); // not working
     // wm.actions.on_startup(OnStartupAction::new(OnStartupAction::spawn("picom"))); // not working
 
     let modkey: u16 = modkeys::MODKEY_4;
-    // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::spawn("google-chrome-stable")));
+    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::spawn("google-chrome-stable")));
     // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::spawn("polybar --quiet")));
-    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::spawn("alacritty")));
-    wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'z', OnKeypressAction::spawn("xterm")));
+    // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'v', OnKeypressAction::spawn("alacritty")));
+    // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'z', OnKeypressAction::spawn("xterm")));
     // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'z', OnKeypressAction::toggle_fullscreen()));
     // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'z', OnKeypressAction::swap_master()));
     // wm.actions.on_keypress(OnKeypressAction::new(&[modkey], 'y', OnKeypressAction::focus_right()));

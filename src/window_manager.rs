@@ -1,8 +1,8 @@
-use std::{sync::{Arc, Mutex}, os::unix::process::CommandExt};
+use std::sync::{Arc, Mutex};
 
-use xcb_util::{ewmh, keysyms};
+use xcb_util::{ewmh, keysyms, cursor};
 
-use crate::{actions::Actions, event_context::EventContext, util, client::{Clients, Client, ClientState}, mouse::Mouse};
+use crate::{actions::Actions, event_context::EventContext, util, client::Clients, mouse::Mouse, handlers::{on_client_message, on_destroy_notify, on_map_request, on_configure_request}};
 
 pub struct WindowManager {
     conn: Arc<ewmh::Connection>,
@@ -48,12 +48,6 @@ impl Default for WindowManager {
             ],
         );
 
-        let cursor = xcb_util::cursor::create_font_cursor(&conn, xcb_util::cursor::LEFT_PTR);
-        let cookie = xcb::change_window_attributes_checked(&conn, screen.root(), &[(xcb::CW_CURSOR, cursor)]);
-        if cookie.request_check().is_err() {
-            panic!("Unable to set cursor icon.")
-        }
-
         let window = conn.generate_id();
 
         xcb::create_window(
@@ -78,15 +72,12 @@ impl Default for WindowManager {
 
         let conn = Arc::new(conn);
 
-        let wm = WindowManager {
-            // maybe there's a better way to do tha without cloning
+        WindowManager {
             conn: conn.clone(),
             actions: Actions::new(conn.clone()),
             clients: Arc::new(Mutex::new(Clients::new(conn.clone()))),
             mouse: Mouse::new(conn.clone()),
-        };
-
-        wm
+        }
     }
 }
 
@@ -113,7 +104,15 @@ impl WindowManager {
 }
 
 impl WindowManager {
+    /// Starts the window manager. Binds the registered keys and actions, starts the programs
+    /// needed at startup, and initializes the event loop.
     pub fn run(&mut self) {
+        // Configure the mouse cursor.
+        let cursor = cursor::create_font_cursor(&self.conn, xcb_util::cursor::LEFT_PTR);
+        _ = xcb::change_window_attributes_checked(&self.conn, util::get_screen(&self.conn).root(), &[(xcb::CW_CURSOR, cursor)])
+            .request_check()
+            .map_err(|_| panic!("Unable to set cursor icon."));
+
         // Instruct XCB to send a KEY_PRESS event when the keys configured in
         // the `on_keypress` actions are pressed.
         for (_, action) in self.actions.at_keypress.iter() {
@@ -132,135 +131,49 @@ impl WindowManager {
         self.conn.flush();
 
         loop {
-            match self.conn.wait_for_event() {
-                Some(event) => {
-                    let ctx = EventContext::new(
-                        self.conn.clone(),
-                        0,
-                        self.clients.clone(),
-                    );
-
-                    let response_type = event.response_type() & !0x80;
-                    match response_type {
-                        // xcb::CREATE_NOTIFY => println!("create_notify"),
-                        xcb::CLIENT_MESSAGE => {
-                            let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
-                            if event.type_() == self.conn.WM_STATE() {
-                                // SEE:
-                                // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
-                                let data = event.data().data32();
-
-                                let action = match data[0] {
-                                    ewmh::STATE_ADD => ClientState::Add,
-                                    ewmh::STATE_REMOVE => ClientState::Remove,
-                                    ewmh::STATE_TOGGLE => ClientState::Toggle,
-                                    _ => ClientState::Unknown,
-                                };
-                                let property = data[1];
-
-                                {
-                                    let mut clients = self.clients.lock().unwrap();
-                                    if property == self.conn.WM_STATE_FULLSCREEN() {
-                                        _ = clients
-                                            .set_fullscreen(event.window(), action)
-                                            .map_err(|e| util::notify_error(e));
-                                    }
-                                };
-                            }
-                        },
-                        xcb::KEY_PRESS => {
-                            let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
-                            match self.actions.at_keypress.get(&event.detail()) {
-                                Some(action) => {
-                                    _ = action.exec(ctx).map_err(|e| util::notify_error(e));
-                                },
-                                None => {},
-                            };
-                        },
-                        xcb::CONFIGURE_REQUEST => {
-                            let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
-                            println!("configure_request {}", event.window());
-                            println!("{} {}", event.width(), event.height());
-
-                            let mut values = Vec::new();
-                            values.push((xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32));
-                            values.push((xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32));
-                            values.push((xcb::CONFIG_WINDOW_X as u16, 0 as u32));
-                            values.push((xcb::CONFIG_WINDOW_Y as u16, 0 as u32));
-
-                            xcb::configure_window(&self.conn, event.window(), &values);
-                            self.conn.flush();
-                            // let clients = self.clients.lock().unwrap();
-                            // clients.resize_tiles(util::get_screen(&self.conn));
-                        },
-                        xcb::MAP_REQUEST => {
-                            let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
-                            xcb::map_window(&self.conn, event.window());
-                            println!("map window: {}", event.window());
-
-                            {
-                                let mut clients = self.clients.lock().unwrap();
-
-                                if clients.contains(event.window()) {
-                                    break;
-                                }
-
-                                let mut client = Client::new(event.window());
-
-                                let cookie = ewmh::get_wm_window_type(&self.conn, event.window()).get_reply();
-                                if let Ok(type_) = cookie {
-                                    for atom in type_.atoms() {
-                                        if *atom == self.conn.WM_WINDOW_TYPE_DOCK() {
-                                            println!("dock");
-                                            client.set_docker();
-                                            client.remove_controll();
-                                        }
-
-                                        if *atom == self.conn.WM_WINDOW_TYPE_TOOLBAR() {
-                                            println!("toolbar");
-                                        }
-
-                                        if *atom == self.conn.WM_WINDOW_TYPE_MENU() {
-                                            println!("menu");
-                                        }
-
-                                        if *atom == self.conn.WM_WINDOW_TYPE_DIALOG() {
-                                            println!("dialog");
-                                        }
-                                    }
-                                }
-
-                                if let Ok (strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
-                                    println!("padding top: {} | bottom: {} | left: {} | right: {}", strut.top, strut.bottom, strut.left, strut.right);
-                                    client.padding_top = strut.top;
-                                    client.padding_bottom = strut.bottom;
-                                    client.padding_left = strut.left;
-                                    client.padding_right = strut.right;
-                                };
-
-                                clients.manage(client);
-                                clients.resize_tiles(util::get_screen(&self.conn));
-                            };
-                        },
-                        // xcb::PROPERTY_NOTIFY => println!("property_notify"),
-                        // xcb::ENTER_NOTIFY => println!("enter_notify"),
-                        xcb::UNMAP_NOTIFY => println!("unmap_notify"),
-                        xcb::DESTROY_NOTIFY => {
-                            let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
-
-                            {
-                                // TODO: handle errors
-                                let mut clients = self.clients.lock().unwrap();
-                                clients.unmanage(event.window());
-                            };
-                        },
-                        _ => (),
-                    }
-
-                    self.conn.flush();
-                }
-                _ => {}
+            if let Some(event) = self.conn.wait_for_event() {
+                self.handle(event);
             }
         }
+    }
+
+    fn handle(&self, event: xcb::GenericEvent) {
+        match event.response_type() & !0x80 {
+            xcb::CLIENT_MESSAGE => {
+                let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
+                on_client_message::handle(event, &self.conn, self.clients.clone());
+            },
+            xcb::CONFIGURE_REQUEST => {
+                let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
+                on_configure_request::handle(event, &self.conn);
+            },
+            xcb::MAP_REQUEST => {
+                let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
+                on_map_request::handle(event, &self.conn, self.clients.clone());
+            },
+            xcb::DESTROY_NOTIFY => {
+                let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
+                on_destroy_notify::handle(event, &self.conn, self.clients.clone());
+            }
+            xcb::KEY_PRESS => {
+                let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
+
+                let ctx = EventContext::new(
+                    self.conn.clone(),
+                    0,
+                    self.clients.clone(),
+                );
+
+                match self.actions.at_keypress.get(&event.detail()) {
+                    Some(action) => {
+                        _ = action.exec(ctx).map_err(|e| util::notify_error(e));
+                    },
+                    None => {},
+                };
+            },
+            _ => {},
+        }
+
+        self.conn.flush();
     }
 }
