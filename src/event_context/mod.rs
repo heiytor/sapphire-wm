@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::client::{Clients, Dir};
+use crate::clients::clients::Clients;
+
 
 pub struct EventContext {
     pub conn: Arc<ewmh::Connection>,
@@ -24,5 +25,4 @@ impl EventContext {
 
         Ok(active_window)
     }
-
 }

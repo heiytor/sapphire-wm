@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::{client::{ClientState, Clients}, util};
+use crate::{clients::clients::Clients, util::{self, Operation}};
 
 pub fn handle(event: &xcb::ClientMessageEvent, conn: &ewmh::Connection, clients: Arc<Mutex<Clients>>) {
     if event.type_() == conn.WM_STATE() {
@@ -11,10 +11,10 @@ pub fn handle(event: &xcb::ClientMessageEvent, conn: &ewmh::Connection, clients:
         let data = event.data().data32();
 
         let action = match data[0] {
-            ewmh::STATE_ADD => ClientState::Add,
-            ewmh::STATE_REMOVE => ClientState::Remove,
-            ewmh::STATE_TOGGLE => ClientState::Toggle,
-            _ => ClientState::Unknown,
+            ewmh::STATE_ADD => Operation::Add,
+            ewmh::STATE_REMOVE => Operation::Remove,
+            ewmh::STATE_TOGGLE => Operation::Toggle,
+            _ => Operation::Unknown,
         };
         let property = data[1];
 
@@ -27,5 +27,7 @@ pub fn handle(event: &xcb::ClientMessageEvent, conn: &ewmh::Connection, clients:
             }
         };
     }
+
+    conn.flush();
 }
 

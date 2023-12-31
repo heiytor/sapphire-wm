@@ -1,8 +1,8 @@
-use super::on_startup::OnStartupAction;
+use super::on_startup::{OnStartup, FnOnStartup};
 
 #[allow(dead_code)]
-impl OnStartupAction {
-    pub fn spawn(process: &str) -> Box<dyn Fn() -> Result<(), String>> {
+impl OnStartup {
+    pub fn spawn(process: &str) -> Box<dyn FnOnStartup> {
         let process_parts: Vec<&str> = process.split_whitespace().collect();
 
         match process_parts.split_first() {
@@ -18,10 +18,8 @@ impl OnStartupAction {
 
                     Ok(())
                 })
-            },
-            None => {
-                Box::new(move || Err("Invalid process string".to_string()))
-            },
+            }
+            None => Box::new(|| Err("Invalid process string".to_string())),
         }
     }
 }

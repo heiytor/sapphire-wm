@@ -1,20 +1,40 @@
-pub struct OnStartupAction {
-    /// TODO: return an error instead of unwrap.
-    callback: Box<dyn Fn() -> Result<(), String>>,
+pub trait FnOnStartup: dyn_clone::DynClone {
+    fn call(&self) -> Result<(), String>;
+}
+
+impl<F> FnOnStartup for F
+where 
+    F: Fn() -> Result<(), String> + Clone 
+{
+    fn call(&self) -> Result<(), String> {
+        self()
+    }
+}
+
+pub struct OnStartup {
+    callback: Box<dyn FnOnStartup>,
 }
 
 #[allow(dead_code)]
-impl OnStartupAction {
-    pub fn new(callback: impl Fn() -> Result<(), String> + 'static) -> Self {
-        OnStartupAction { 
-            callback: Box::new(callback),
+impl OnStartup {
+    pub fn new(callback: Box<dyn FnOnStartup>) -> Self {
+        OnStartup {
+            callback,
         }
     }
 }
 
-impl OnStartupAction {
+impl Clone for OnStartup {
+    fn clone(&self) -> Self {
+        Self {
+            callback: dyn_clone::clone_box(&*self.callback),
+        }
+    }
+}
+
+impl OnStartup {
     #[inline]
-    pub fn exec(&self) -> Result<(), String> {
-        (self.callback)()
+    pub fn call(&self) -> Result<(), String> {
+        self.callback.call()
     }
 }

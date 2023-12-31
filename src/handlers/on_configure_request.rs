@@ -16,7 +16,7 @@ pub fn handle(event: &xcb::ConfigureRequestEvent, conn: &ewmh::Connection) {
     maybe_push(xcb::CONFIG_WINDOW_SIBLING as u16, event.sibling() as u32);
     maybe_push(xcb::CONFIG_WINDOW_STACK_MODE as u16, event.stack_mode() as u32);
 
-    if util::client_has_type(&conn, event.window(), conn.WM_WINDOW_TYPE_DIALOG()) {
+    if util::window_has_type(&conn, event.window(), conn.WM_WINDOW_TYPE_DIALOG()) {
         let geometry = xcb::get_geometry(&conn, event.window()).get_reply().unwrap();
         let screen = util::get_screen(&conn);
 

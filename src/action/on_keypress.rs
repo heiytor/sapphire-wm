@@ -1,30 +1,52 @@
 use crate::event_context::EventContext;
 
-pub struct OnKeypressAction {
-    callback: Box<dyn Fn(EventContext) -> Result<(), String>>,
+pub trait FnOnKeypress: dyn_clone::DynClone {
+    fn call(&self, ctx: EventContext) -> Result<(), String>;
+}
+
+impl<F> FnOnKeypress for F
+where 
+    F: Fn(EventContext) -> Result<(), String> + Clone 
+{
+    fn call(&self, ctx: EventContext) -> Result<(), String> {
+        self(ctx)
+    }
+}
+
+pub struct OnKeypress {
+    callback: Box<dyn FnOnKeypress>,
 
     pub modkey: Vec<u16>,
     pub ch: char,
 }
 
-impl OnKeypressAction {
+impl OnKeypress {
     pub fn new(
         modkey: &[u16],
         ch: char,
-        callback: impl Fn(EventContext) -> Result<(), String> + 'static,
+        callback: Box<dyn FnOnKeypress>,
     ) -> Self {
-        OnKeypressAction { 
+        OnKeypress { 
             modkey: modkey.to_vec(),
             ch,
-            callback: Box::new(callback),
+            callback,
         }
     }
 }
 
-impl OnKeypressAction {
-    #[inline]
-    pub fn exec(&self, ctx: EventContext) -> Result<(), String> {
-        (self.callback)(ctx)
+impl Clone for OnKeypress {
+    fn clone(&self) -> Self {
+        Self {
+            ch: self.ch.clone(),
+            modkey: self.modkey.clone(),
+            callback: dyn_clone::clone_box(&*self.callback),
+        }
     }
 }
 
+impl OnKeypress {
+    #[inline]
+    pub fn call(&self, ctx: EventContext) -> Result<(), String> {
+        self.callback.call(ctx)
+    }
+}

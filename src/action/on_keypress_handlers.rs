@@ -1,11 +1,12 @@
-use crate::client::{Dir, ClientState};
+use crate::clients::clients::Dir;
 use crate::event_context::EventContext;
-use crate::action::on_keypress::OnKeypressAction;
-use crate::util;
+use crate::action::on_keypress::OnKeypress;
+use crate::util::{self, Operation};
+use super::on_keypress::FnOnKeypress;
 
 #[allow(dead_code)]
-impl OnKeypressAction {
-    pub fn spawn(process: &str) -> Box<dyn Fn(EventContext) -> Result<(), String>> {
+impl OnKeypress {
+    pub fn spawn(process: &str) -> Box<dyn FnOnKeypress> {
         let process_parts: Vec<&str> = process.split_whitespace().collect();
 
         match process_parts.split_first() {
@@ -28,39 +29,49 @@ impl OnKeypressAction {
         }
     }
 
-    pub fn kill_process() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
-        Box::new(move |ctx| {
+    pub fn kill_process() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
             xcb::destroy_window(&ctx.conn, ctx.active_window()?);
             Ok(())
         })
     }
 
-    pub fn focus_left() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
-        Box::new(move |ctx| {
+    pub fn focus_left() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
             ctx.clients.lock().unwrap().move_focus(Dir::Left);
             Ok(())
         })
     }
 
-    pub fn focus_right() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
-        Box::new(move |ctx| {
+    pub fn focus_right() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
             ctx.clients.lock().unwrap().move_focus(Dir::Right);
             Ok(())
         })
     }
 
-    pub fn toggle_fullscreen() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
-        Box::new(move |ctx| {
+    pub fn toggle_fullscreen() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
             _ = ctx.clients.lock().unwrap()
-                .set_fullscreen(0, ClientState::Toggle)
+                .set_fullscreen(0, Operation::Toggle)
                 .map_err(|e| util::notify_error(e));
 
             Ok(())
         })
     }
 
-    pub fn swap_master() -> Box<dyn Fn(EventContext) -> Result<(), String>> {
-        Box::new(move |ctx| {
+    pub fn toggle_maximized() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
+            _ = ctx.clients.lock().unwrap()
+                .set_maximized(0, Operation::Toggle)
+                .map_err(|e| util::notify_error(e));
+
+            Ok(())
+        })
+    }
+
+    pub fn swap_master() -> Box<dyn FnOnKeypress> {
+        Box::new(move |ctx: EventContext| {
             ctx.clients.lock().unwrap().swap_master();
             Ok(())
         })

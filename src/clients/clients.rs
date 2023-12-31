@@ -2,58 +2,13 @@ use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
 
-use crate::util;
+use crate::{util::{self, Operation}, clients::client::ClientState, config::Config};
 
-pub struct Client {
-    wid: u32,
-    is_controlled: bool,
-    is_fullscreen: bool,
-    is_dock: bool,
+use super::client::Client;
 
-    pub padding_top: u32,
-    pub padding_bottom: u32,
-    pub padding_left: u32,
-    pub padding_right: u32,
-}
-
-impl Client {
-    pub fn new(wid: u32) -> Self {
-        Client { 
-            wid,
-            is_controlled: true,
-            is_fullscreen: false,
-            is_dock: false,
-            padding_top: 0,
-            padding_bottom: 0,
-            padding_left: 0,
-            padding_right: 0,
-        }
-    }
-
-    pub fn set_docker(&mut self) {
-        self.is_dock = true;
-    }
-
-    pub fn remove_controll(&mut self) {
-        self.is_controlled = false;
-    }
-}
-
-pub struct Config {
-    /// Windows border in pixels.
-    pub border: u32,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config { border: 8 }
-    }
-}
 
 pub struct Clients {
-    pub config: Config,
-
-    /// EWMH connection.
+    config: Arc<Config>,
     conn: Arc<ewmh::Connection>,
 
     /// Currently managed X windows.
@@ -68,11 +23,11 @@ pub struct Clients {
 }
 
 impl Clients {
-    pub fn new(conn: Arc<ewmh::Connection>) -> Self {
+    pub fn new(conn: Arc<ewmh::Connection>, config: Arc<Config>) -> Self {
         Clients {
             conn,
+            config,
             clients: VecDeque::new(),
-            config: Config::default(),
             active_client: 0,
         }
     }
@@ -87,9 +42,12 @@ impl Clients {
         let client_wid = client.wid;
 
         self.clients.push_front(client);
+        if self.clients.len() > 1 {
+            self.active_client += 1;
+        }
         self.set_active(client_wid);
         self.refresh_client_list();
-        // self.resize_tiles(util::get_screen(&self.conn));
+        self.resize_tiles(util::get_screen(&self.conn));
     }
 
     /// Unmanages an X Window. Removes it from the "_NET_CLIENT_LIST", and if the window
@@ -105,106 +63,11 @@ impl Clients {
         self.resize_tiles(util::get_screen(&self.conn));
     }
 
-    pub fn resize_tiles(&self, screen: xcb::Screen) {
-        // ....
-        let screen_w = screen.width_in_pixels() as u32;
-        let screen_h = screen.height_in_pixels() as u32;
-
-        let padding_top = self.max_padding_top() as u32;
-        let padding_bottom = self.max_padding_bottom() as u32;
-        let padding_left = self.max_padding_left() as u32;
-        let padding_right = self.max_padding_right() as u32;
-
-        // The available width and height represent the pixels available for drawing windows.
-        // They are the total screen dimensions minus the specified paddings.
-        let available_w = screen_w - padding_left - padding_right;
-        let available_h = screen_h - padding_top - padding_bottom;
-
-        let normal_clients: Vec<&Client> = self.clients
-            .iter()
-            .filter(|c| c.is_controlled && !c.is_fullscreen)
-            .collect();
-
-        // Starting tilling at top-right
-        let mut window_x: u32 = 0;
-        let mut window_y: u32 = 0 + self.max_padding_top() as u32;
-
-        // ...
-        let mut window_h: u32 = available_h - self.config.border * 2;
-        let mut window_w: u32 = if normal_clients.len() == 1 { 
-            available_w - self.config.border * 2
-        } else { 
-            available_w / 2 - self.config.border
-        };
-
-        println!("------------------------------------");
-        for (i, client) in normal_clients.iter().enumerate() {
-            if i > 0 {
-                // Since the master window always fills the left-middle of the
-                // screen, the other windows will only occupy the right-middle portion.
-                window_w = (available_w / 2) - self.config.border * 2;
-                window_x = available_w / 2;
-
-                // Adjusting the height for each window located in the right-middle portion of the screen
-                // to ensure they fit proportionally based on the total number of windows.
-                let height_per_window = available_h / (normal_clients.len() - 1) as u32;
-
-                window_y = (height_per_window * (i - 1) as u32) + self.max_padding_top() as u32;
-                window_h = if client.wid == normal_clients.last().unwrap().wid {
-                    height_per_window - (self.config.border * 2)
-                } else {
-                    height_per_window - self.config.border
-                };
-            }
-
-            println!("resize window: {}", client.wid);
-            // println!("{} {}", window_x, window_y);
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, self.config.border),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, window_h),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, window_w),
-                    (xcb::CONFIG_WINDOW_X as u16, window_x),
-                    (xcb::CONFIG_WINDOW_Y as u16, window_y),
-                ],
-            );
-        }
-
-        let fullscreen_clients: Vec<&Client> = self.clients
-            .iter()
-            .filter(|c| c.is_fullscreen)
-            .collect();
-
-        for client in fullscreen_clients.iter() {
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
-                    (xcb::CONFIG_WINDOW_X as u16, 0),
-                    (xcb::CONFIG_WINDOW_Y as u16, 0),
-                ],
-            );
-        }
-
-        self.conn.flush();
-    }
 }
 
 pub enum Dir {
     Left,
     Right,
-}
-
-pub enum ClientState {
-    Add,
-    Remove,
-    Toggle,
-    Unknown,
 }
 
 pub const MASTER_CLIENT: usize = 0; 
@@ -266,7 +129,7 @@ impl Clients {
 
     /// Sets the fullscreen state for the clients with wid based on the specified state `state`.
     /// If the wid is equal to 0, sets for the active client.
-    pub fn set_fullscreen(&mut self, wid: u32, state: ClientState) -> Result<(), String> {
+    pub fn set_fullscreen(&mut self, wid: u32, action: Operation) -> Result<(), String> {
         let client: &mut Client = if wid != 0 {
             match self.clients.iter_mut().find(|c| c.wid == wid) {
                 Some(client) => client,
@@ -279,19 +142,8 @@ impl Clients {
             }
         };
 
-        let status = match state {
-            ClientState::Add => true,
-            ClientState::Remove => false,
-            ClientState::Toggle => !client.is_fullscreen,
-            ClientState::Unknown => return Err("Invalid state.".to_string()),
-        };
-
-        if status == client.is_fullscreen {
-            return Ok(())
-        }
-
+        let status = client.set_state(ClientState::Fullscreen, action)?;
         let data = if status { self.conn.WM_STATE_FULLSCREEN() } else { 0 };
-        client.is_fullscreen = status;
 
         xcb::change_property(
             &self.conn,
@@ -307,9 +159,133 @@ impl Clients {
         Ok(())
     }
 
+    pub fn set_maximized(&mut self, wid: u32, action: Operation) -> Result<(), String> {
+        let client: &mut Client = if wid != 0 {
+            match self.clients.iter_mut().find(|c| c.wid == wid) {
+                Some(client) => client,
+                None => return Err(format!("Client with wid {} not found", wid)),
+            }
+        } else {
+            match self.clients.get_mut(0) {
+                Some(client) => client,
+                None => return Err("No clients available".to_string()),
+            }
+        };
+
+        _ = client.set_state(ClientState::Maximized, action)?;
+
+        self.resize_tiles(util::get_screen(&self.conn));
+        Ok(())
+    }
 }
 
 impl Clients {
+    pub(self) fn resize_tiles(&self, screen: xcb::Screen) {
+        // ....
+        let screen_w = screen.width_in_pixels() as u32;
+        let screen_h = screen.height_in_pixels() as u32;
+
+        let padding_top = self.max_padding_top() as u32;
+        let padding_bottom = self.max_padding_bottom() as u32;
+        let padding_left = self.max_padding_left() as u32;
+        let padding_right = self.max_padding_right() as u32;
+
+        // The available width and height represent the pixels available for drawing windows.
+        // They are the total screen dimensions minus the specified paddings.
+        let available_w = screen_w - padding_left - padding_right;
+        let available_h = screen_h - padding_top - padding_bottom;
+
+        let normal_clients: Vec<&Client> = self.clients
+            .iter()
+            .filter(|c| c.is_controlled() && c.is_visible())
+            .collect();
+
+        // Starting tilling at top-right
+        let mut window_x: u32 = self.config.gap_size;
+        let mut window_y: u32 = self.config.gap_size + self.max_padding_top() as u32;
+
+        // ...
+        let mut window_h: u32 = available_h - (self.config.border_size * 2) - (self.config.gap_size * 2);
+        let mut window_w: u32 = if normal_clients.len() == 1 { 
+            available_w - (self.config.border_size * 2) - (self.config.gap_size * 2)
+        } else { 
+            available_w / 2 - self.config.border_size - self.config.gap_size
+        };
+
+        for (i, client) in normal_clients.iter().enumerate() {
+            if i > 0 {
+                // Since the master window always fills the left-middle of the
+                // screen, the other windows will only occupy the right-middle portion.
+                window_w = (available_w / 2) - (self.config.border_size * 2) - (self.config.gap_size * 2);
+                // window_w = available_w / 2 - self.config.border - self.config.gap;
+                window_x = available_w / 2 + self.config.gap_size;
+
+                // Adjusting the height for each window located in the right-middle portion of the screen
+                // to ensure they fit proportionally based on the total number of windows.
+                let height_per_window = available_h / (normal_clients.len() - 1) as u32;
+
+                window_y = (height_per_window * (i - 1) as u32) + self.max_padding_top() + self.config.gap_size;
+                window_h = if client.wid == normal_clients.last().unwrap().wid {
+                    height_per_window - (self.config.border_size * 2) - (self.config.gap_size * 2)
+                } else {
+                    height_per_window - self.config.border_size - self.config.gap_size
+                };
+            }
+
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, self.config.border_size),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, window_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, window_w),
+                    (xcb::CONFIG_WINDOW_X as u16, window_x),
+                    (xcb::CONFIG_WINDOW_Y as u16, window_y),
+                ],
+            );
+        }
+
+        let fullscreen_clients: Vec<&Client> = self.clients
+            .iter()
+            .filter(|c| c.has_state(&ClientState::Fullscreen) && c.is_controlled() && c.is_visible())
+            .collect();
+
+        for client in fullscreen_clients.iter() {
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
+                    (xcb::CONFIG_WINDOW_X as u16, 0),
+                    (xcb::CONFIG_WINDOW_Y as u16, 0),
+                ],
+            );
+        }
+
+        let maximized_clients: Vec<&Client> = self.clients
+            .iter()
+            .filter(|c| c.has_state(&ClientState::Maximized) && c.is_controlled() && c.is_visible())
+            .collect();
+
+        for client in maximized_clients.iter() {
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
+                    (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left - padding_right),
+                    (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top - padding_bottom),
+                ],
+            );
+        }
+
+        self.conn.flush();
+    }
+
     /// Refreshes the "_NET_CLIENT_LIST" with the current list of clients.
     #[inline]
     pub(self) fn refresh_client_list(&self) {
@@ -324,8 +300,14 @@ impl Clients {
     /// sets the input focus.
     pub(self) fn set_active(&mut self, wid: u32) {
         if let Some(idx) = self.clients.iter().position(|c| c.wid == wid) {
-            self.active_client = idx;
+            // Instead of updating each window's border during resizes, we can simply swap the borders
+            // between the currently active window and the window becoming active.
+            self.clients[self.active_client].set_inactive_border(&self.conn);
+            self.clients[idx].set_active_border(&self.conn);
+
             ewmh::set_active_window(&self.conn, 0, wid);
+            self.active_client = idx;
+
             xcb::set_input_focus(
                 &self.conn,
                 xcb::INPUT_FOCUS_PARENT as u8,

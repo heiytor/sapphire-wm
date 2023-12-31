@@ -17,6 +17,13 @@ pub mod modkeys {
     pub const MODKEY_CONTROL: u16 = xcb::MOD_MASK_CONTROL as u16;
 }
 
+pub enum Operation {
+    Add,
+    Remove,
+    Toggle,
+    Unknown,
+}
+
 /// NOTE:
 /// For now, sapphire does not support multiple monitors and due to rust's
 /// lifetimes and how xcb::Screen needs conn, it's really hard to use screen
@@ -33,7 +40,7 @@ pub fn notify_error(e: String) {
 }
 
 #[inline]
-pub fn client_has_type(conn: &ewmh::Connection, wid: u32, atom: xcb::Atom) -> bool {
+pub fn window_has_type(conn: &ewmh::Connection, wid: u32, atom: xcb::Atom) -> bool {
     xcb_util::ewmh::get_wm_window_type(conn, wid)
         .get_reply()
         .map_or(false, |w| w.atoms().contains(&atom))

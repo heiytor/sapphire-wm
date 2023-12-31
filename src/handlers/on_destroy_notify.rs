@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::client::Clients;
+use crate::clients::clients::Clients;
+
 
 pub fn handle(event: &xcb::DestroyNotifyEvent, conn: &ewmh::Connection, clients: Arc<Mutex<Clients>>) {
     {
@@ -10,4 +11,6 @@ pub fn handle(event: &xcb::DestroyNotifyEvent, conn: &ewmh::Connection, clients:
         let mut clients = clients.lock().unwrap();
         clients.unmanage(event.window());
     };
+
+    conn.flush();
 }
