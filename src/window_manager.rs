@@ -72,8 +72,9 @@ impl WindowManager {
         ewmh::set_supporting_wm_check(&conn, screen.root(), window);
         ewmh::set_wm_name(&conn, window, "sapphire");
 
-        ewmh::set_number_of_desktops(&conn, 0, config.workspaces.count);
-        ewmh::set_current_desktop(&conn, 0, config.workspaces.default);
+        ewmh::set_number_of_desktops(&conn, 0, config.virtual_desktops.len() as u32);
+        ewmh::set_current_desktop(&conn, 0, 0);
+        ewmh::set_desktop_names(&conn, 0, config.virtual_desktops.iter().map(|d| d.as_ref()));
 
         conn.flush();
 

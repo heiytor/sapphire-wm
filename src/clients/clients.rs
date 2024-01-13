@@ -28,7 +28,7 @@ impl Clients {
     pub fn new(conn: Arc<ewmh::Connection>, config: Arc<Config>) -> Self {
         Clients {
             conn,
-            active_desktop: config.workspaces.default,
+            active_desktop: 0,
             config,
             clients: VecDeque::new(),
             active_client: 0,

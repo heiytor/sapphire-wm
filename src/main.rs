@@ -22,21 +22,36 @@ fn main() {
 
     config.gap_size = 6;
 
+    config.virtual_desktops = vec![
+        String::from("1"),
+        String::from("2"),
+        String::from("3"),
+        String::from("4"),
+        String::from("5"),
+        String::from("6"),
+        String::from("7"),
+        String::from("8"),
+        String::from("9"),
+    ];
+
     let mut wm = WindowManager::new(config);
     wm.mouse.disable_sloppy_focus();
 
     wm.on_startup(&[
-        // OnStartupAction::new(OnStartupAction::spawn("picom")), // not working
+        // OnStartup::new(OnStartup::spawn("picom")), // not working
         // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --blocks")),
-        OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
-        // OnStartupAction::new(OnStartupAction::spawn("polybar")),
+        // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
+        OnStartup::new(OnStartup::spawn("polybar")),
         OnStartup::new(OnStartup::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")),
     ]);
 
-    let modkey: u16 = modkeys::MODKEY_4;
+    let modkey = modkeys::MODKEY_CONTROL;
 
     let mut on_keypress_actions = vec![
-        OnKeypress::new(&[modkey], 'v', OnKeypress::spawn("alacritty")),
+        OnKeypress::new(&[modkey], 'v', Box::new(|ctx: EventContext| {
+            ctx.spawn("alacritty")?;
+            Ok(())
+        })),
         // Move focus to left.
         OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
             let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
@@ -65,7 +80,6 @@ fn main() {
     }
 
     wm.on_keypress(on_keypress_actions.as_slice());
-
 
     wm.run();
 }
