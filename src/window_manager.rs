@@ -2,7 +2,7 @@ use std::{sync::{Arc, Mutex}, collections::HashMap};
 
 use xcb_util::{ewmh, keysyms, cursor};
 
-use crate::{clients::clients::Clients, mouse::Mouse, util, handlers::{on_client_message, on_configure_request, on_map_request, on_destroy_notify}, event_context::EventContext, config::Config, action::{on_startup::OnStartup, on_keypress::OnKeypress}};
+use crate::{clients::{clients::Clients, client::{ClientType, Client}}, mouse::Mouse, util::{self, Operation}, event_context::EventContext, config::Config, action::{on_startup::OnStartup, on_keypress::OnKeypress}};
 
 
 pub struct WindowManager {
@@ -72,6 +72,9 @@ impl WindowManager {
         ewmh::set_supporting_wm_check(&conn, screen.root(), window);
         ewmh::set_wm_name(&conn, window, "sapphire");
 
+        ewmh::set_number_of_desktops(&conn, 0, config.workspaces.count);
+        ewmh::set_current_desktop(&conn, 0, config.workspaces.default);
+
         conn.flush();
 
         let conn = Arc::new(conn);
@@ -126,9 +129,6 @@ impl WindowManager {
     /// Starts the window manager. Binds the registered keys and actions, starts the programs
     /// needed at startup, and initializes the event loop.
     pub fn run(&mut self) {
-        ewmh::set_number_of_desktops(&self.conn, 0, self.config.workspaces);
-        ewmh::set_current_desktop(&self.conn, 0, self.config.default_workspace);
-
         // Configure the mouse cursor.
         let cursor = cursor::create_font_cursor(&self.conn, xcb_util::cursor::LEFT_PTR);
         _ = xcb::change_window_attributes_checked(&self.conn, util::get_screen(&self.conn).root(), &[(xcb::CW_CURSOR, cursor)])
@@ -149,47 +149,161 @@ impl WindowManager {
             }
         }
     }
+}
 
-    fn handle(&self, event: xcb::GenericEvent) {
+impl WindowManager {
+    pub(self) fn handle(&self, event: xcb::GenericEvent) {
         match event.response_type() & !0x80 {
             xcb::CLIENT_MESSAGE => {
                 let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
-                on_client_message::handle(event, &self.conn, self.clients.clone());
+                self.on_client_message(event);
             },
             xcb::CONFIGURE_REQUEST => {
                 let event: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
-                on_configure_request::handle(event, &self.conn);
+                self.on_configure_request(event);
             },
             xcb::MAP_REQUEST => {
                 let event: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
-                on_map_request::handle(event, &self.conn, self.clients.clone());
+                self.on_map_request(event);
             },
             xcb::DESTROY_NOTIFY => {
                 let event: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
-                on_destroy_notify::handle(event, &self.conn, self.clients.clone());
+                self.on_destroy_notify(event);
             }
             xcb::KEY_PRESS => {
                 let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
 
-                let ctx = EventContext::new(
-                    self.conn.clone(),
-                    0,
-                    self.clients.clone(),
-                );
-
                 match self.keypress_actions.get(&event.detail()) {
                     Some(action) => {
+                        let ctx = EventContext::new(
+                            self.conn.clone(),
+                            0,
+                            self.clients.clone(),
+                        );
+
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
                         self.conn.flush();
                     },
                     None => {},
                 };
             },
-            _ => {},
+            _ => {
+                println!("unexpected event")
+            },
         }
     }
-}
 
-#[cfg(test)]
-mod tests {
+    pub(self) fn on_client_message(&self, event: &xcb::ClientMessageEvent) {
+        if event.type_() == self.conn.WM_STATE() {
+            // SEE:
+            // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
+            let data = event.data().data32();
+
+            let action = match data[0] {
+                ewmh::STATE_ADD => Operation::Add,
+                ewmh::STATE_REMOVE => Operation::Remove,
+                ewmh::STATE_TOGGLE => Operation::Toggle,
+                _ => Operation::Unknown,
+            };
+            let property = data[1];
+
+            {
+                let mut clients = self.clients.lock().unwrap();
+                if property == self.conn.WM_STATE_FULLSCREEN() {
+                    _ = clients
+                        .set_fullscreen(event.window(), action)
+                        .map_err(|e| util::notify_error(e));
+                }
+            };
+        }
+
+        self.conn.flush();
+    }
+
+    pub(self) fn on_configure_request(&self, event: &xcb::ConfigureRequestEvent) {
+        let mut values: Vec<(u16, u32)> = Vec::new();
+        let mut maybe_push = |mask: u16, value: u32| {
+            if event.value_mask() & mask > 0 {
+                values.push((mask, value));
+            }
+        };
+
+        maybe_push(xcb::CONFIG_WINDOW_WIDTH as u16, event.width() as u32);
+        maybe_push(xcb::CONFIG_WINDOW_HEIGHT as u16, event.height() as u32);
+        maybe_push(xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, event.border_width() as u32);
+        maybe_push(xcb::CONFIG_WINDOW_SIBLING as u16, event.sibling() as u32);
+        maybe_push(xcb::CONFIG_WINDOW_STACK_MODE as u16, event.stack_mode() as u32);
+
+        if util::window_has_type(&self.conn, event.window(), self.conn.WM_WINDOW_TYPE_DIALOG()) {
+            let geometry = xcb::get_geometry(&self.conn, event.window()).get_reply().unwrap();
+            let screen = util::get_screen(&self.conn);
+
+            let x = (screen.width_in_pixels() - geometry.width()) / 2;
+            let y = (screen.height_in_pixels() - geometry.height()) / 2;
+
+            maybe_push(xcb::CONFIG_WINDOW_X as u16, x as u32);
+            maybe_push(xcb::CONFIG_WINDOW_Y as u16, y as u32);
+        } else {
+            maybe_push(xcb::CONFIG_WINDOW_X as u16, event.x() as u32);
+            maybe_push(xcb::CONFIG_WINDOW_Y as u16, event.y() as u32);
+        }
+
+        xcb::configure_window(&self.conn, event.window(), &values);
+        self.conn.flush();
+    }
+
+    pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
+        {
+            // TODO: handle errors
+            let mut clients = self.clients.lock().unwrap();
+            let wid = clients.get_client(event.window()).unwrap().wid;
+
+            std::process::Command::new("kill")
+                .args(&["-9", &wid.to_string()])
+                .output()
+                .unwrap();
+
+            clients.unmanage(event.window());
+        };
+
+        self.conn.flush();
+    }
+
+    pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
+        let mut clients = self.clients.lock().unwrap();
+        if clients.contains(event.window()) {
+            return;
+        }
+
+        xcb::map_window(&self.conn, event.window());
+
+        let mut client = Client::new(event.window());
+
+        if let Ok(desktop) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
+            client.desktop = desktop;
+        }
+
+        if let Ok(pid) = ewmh::get_wm_pid(&self.conn, event.window()).get_reply() {
+            client.pid = pid;
+        }
+
+        if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
+            client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
+        };
+
+        let mut r#type: ClientType = ClientType::Normal;
+        if util::window_has_type(&self.conn, event.window(), self.conn.WM_WINDOW_TYPE_DOCK()) {
+            r#type = ClientType::Dock;
+        }
+
+        if r#type != ClientType::Dock {
+            client.set_border_color(&self.conn, self.config.border.inactive_color);
+        }
+
+        client.set_type(r#type);
+        client.desktop = clients.active_desktop;
+
+        clients.manage(client);
+        self.conn.flush();
+    }
 }

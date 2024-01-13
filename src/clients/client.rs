@@ -15,22 +15,24 @@ pub enum ClientType {
 }
 
 pub struct Client {
-    pub wid: u32,
-
     is_controlled: bool,
     is_visible: bool,
     r#type: ClientType,
 
+    pub pid: u32,
+    pub wid: u32,
     pub states: Vec<ClientState>,
     pub padding_top: u32,
     pub padding_bottom: u32,
     pub padding_left: u32,
     pub padding_right: u32,
+    pub desktop: u32,
 }
 
 impl Default for Client {
     fn default() -> Self {
         Client { 
+            pid: 0,
             wid: 0,
             is_controlled: false,
             padding_top: 0,
@@ -40,6 +42,7 @@ impl Default for Client {
             is_visible: false,
             r#type: ClientType::Normal,
             states: Vec::new(),
+            desktop: 0,
         }
     }
 }
@@ -48,6 +51,7 @@ impl Client {
     pub fn new(wid: u32) -> Self {
         Client { 
             wid,
+            pid: 0,
             is_controlled: true,
             padding_top: 0,
             padding_bottom: 0,
@@ -56,6 +60,7 @@ impl Client {
             is_visible: true,
             r#type: ClientType::Normal,
             states: Vec::new(),
+            desktop: 0,
         }
     }
 }
@@ -199,19 +204,11 @@ impl Client {
         }
     }
 
-    pub fn set_inactive_border(&self, conn: &ewmh::Connection) {
+    pub fn set_border_color(&self, conn: &ewmh::Connection, color: u32) {
         xcb::change_window_attributes(
             conn,
             self.wid,
-            &[(xcb::CW_BORDER_PIXEL, 0x00FF00)],
-        );
-    }
-
-    pub fn set_active_border(&self, conn: &ewmh::Connection) {
-        xcb::change_window_attributes(
-            conn,
-            self.wid,
-            &[(xcb::CW_BORDER_PIXEL, 0xFF0000)],
+            &[(xcb::CW_BORDER_PIXEL, color)],
         );
     }
 }

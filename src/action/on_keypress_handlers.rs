@@ -1,4 +1,3 @@
-use crate::clients::clients::Dir;
 use crate::event_context::EventContext;
 use crate::action::on_keypress::OnKeypress;
 use crate::util::{self, Operation};
@@ -32,20 +31,6 @@ impl OnKeypress {
     pub fn kill_process() -> Box<dyn FnOnKeypress> {
         Box::new(move |ctx: EventContext| {
             xcb::destroy_window(&ctx.conn, ctx.active_window()?);
-            Ok(())
-        })
-    }
-
-    pub fn focus_left() -> Box<dyn FnOnKeypress> {
-        Box::new(move |ctx: EventContext| {
-            ctx.clients.lock().unwrap().move_focus(Dir::Left);
-            Ok(())
-        })
-    }
-
-    pub fn focus_right() -> Box<dyn FnOnKeypress> {
-        Box::new(move |ctx: EventContext| {
-            ctx.clients.lock().unwrap().move_focus(Dir::Right);
             Ok(())
         })
     }
