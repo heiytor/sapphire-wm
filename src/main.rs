@@ -45,25 +45,35 @@ fn main() {
         OnStartup::new(OnStartup::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")),
     ]);
 
-    let modkey = modkeys::MODKEY_CONTROL;
+    let modkey = modkeys::MODKEY_4;
 
     let mut on_keypress_actions = vec![
         OnKeypress::new(&[modkey], 'v', Box::new(|ctx: EventContext| {
             ctx.spawn("alacritty")?;
             Ok(())
         })),
-        // Move focus to left.
         OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
-            let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
-            _ = clients.move_focus(Dir::Left);
+            let clients = ctx.clients.lock().unwrap();
+
+            if let Some(c) = clients.get_focused(0, 0) {
+                println!("destroy is controlled {}", c.is_controlled());
+                c.destroy(&ctx.conn);
+            }
+
             Ok(())
         })),
-        // Move focus to right.
-        OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
-            let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
-            _ = clients.move_focus(Dir::Right);
-            Ok(())
-        })),
+        // // Move focus to left.
+        // OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
+        //     let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
+        //     _ = clients.move_focus(Dir::Left);
+        //     Ok(())
+        // })),
+        // // Move focus to right.
+        // OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
+        //     let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
+        //     _ = clients.move_focus(Dir::Right);
+        //     Ok(())
+        // })),
     ];
 
     

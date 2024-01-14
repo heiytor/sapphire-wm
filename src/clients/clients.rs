@@ -36,38 +36,6 @@ impl Clients {
     }
 }
 
-impl Clients {
-    /// Adds a new X Window that the window manager should manage. Updates the
-    /// "_NET_CLIENT_LIST" to include the created window and sets it as the
-    /// "_NET_ACTIVE_WINDOW".
-    pub fn manage(&mut self, client: Client) {
-        // TODO.
-        let client_wid = client.wid;
-
-        self.clients.push_front(client);
-        if self.clients.len() > 1 {
-            self.active_client += 1;
-        }
-        self.set_active(client_wid);
-        self.refresh_client_list();
-        self.resize_tiles(util::get_screen(&self.conn));
-    }
-
-    /// Unmanages an X Window. Removes it from the "_NET_CLIENT_LIST", and if the window
-    /// is the "_NET_ACTIVE_WINDOW", sets the last created window as active.
-    pub fn unmanage(&mut self, wid: u32) {
-        self.clients.retain(|c| c.wid != wid);
-
-        let last_wid: Option<u32> = self.clients.front().map(|c| c.wid);
-        let last_wid: u32 = last_wid.unwrap_or(xcb::WINDOW_NONE);
-
-        self.set_active(last_wid);
-        self.refresh_client_list();
-        self.resize_tiles(util::get_screen(&self.conn));
-    }
-
-}
-
 pub enum Dir {
     Left,
     Right,
@@ -75,10 +43,68 @@ pub enum Dir {
 
 pub const MASTER_CLIENT: usize = 0; 
 
+#[allow(dead_code)]
 impl Clients {
+    /// Adds a new X window that the window manager should managea and updates the
+    /// `_NET_CLIENT_LIST` to include the created window.
+    pub fn manage(&mut self, client: Client) {
+        self.clients.push_front(client);
+        self.refresh_client_list();
+    }
+
+    /// Unmanages an X window and removes it from the `_NET_CLIENT_LIST`.
+    pub fn unmanage(&mut self, wid: u32) {
+        self.clients.retain(|c| c.wid != wid);
+        self.refresh_client_list();
+    }
+
+    /// Retrieves a client with the specified window ID.
     #[inline]
-    pub fn get_client(&self, wid: u32) -> Option<&Client> {
-        self.clients.iter().find(|c| c.wid == wid)
+    pub fn get(&self, wid: u32) -> Option<&Client> {
+        self.clients
+            .iter()
+            .find(|c| c.wid == wid)
+    }
+
+    /// Retrieves a client with the specified window ID as mut.
+    #[inline]
+    pub fn get_mut(&mut self, wid: u32) -> Option<&mut Client> {
+        self.clients
+            .iter_mut()
+            .find(|c| c.wid == wid)
+    }
+
+    /// Retrieves the focused client on screen `s` and tag `t`.
+    #[inline]
+    pub fn get_focused(&self, s: u32, t: u32) -> Option<&Client> {
+        self.clients
+            .iter()
+            .find(|c| c.is_focused && c.screen == s && c.tag == t)
+    }
+
+    pub fn set_focused(&mut self, client: &Client) {
+        let set_border_color = |wid: u32, color: u32| {
+            xcb::change_window_attributes(
+                &self.conn,
+                wid,
+                &[(xcb::CW_BORDER_PIXEL, color)],
+            );
+        };
+
+        // Unfocus the old focused client if any. TODO
+        // if let Some(c) = self.get_focused_mut(client.screen, client.tag) {
+        if let Some(c) = self.clients.iter_mut().find(|c| c.is_focused && c.screen == client.screen && c.tag == client.tag) {
+            set_border_color(c.wid, self.config.border.inactive_color);
+        }
+
+        set_border_color(client.wid, self.config.border.active_color);
+
+        xcb::set_input_focus(
+            &self.conn,
+            xcb::INPUT_FOCUS_PARENT as u8,
+            client.wid,
+            xcb::CURRENT_TIME,
+        );
     }
 
     /// Swaps the master client to the active client. If the active client is already the
@@ -89,7 +115,7 @@ impl Clients {
         }
 
         self.clients.swap(MASTER_CLIENT, self.active_client);
-        self.set_active(self.clients[MASTER_CLIENT].wid);
+        // self.set_focused(&mut self.clients[MASTER_CLIENT]);
         self.resize_tiles(util::get_screen(&self.conn));
     }
 
@@ -119,19 +145,19 @@ impl Clients {
             }
         };
 
-        let wid = loop {
-            let client = match self.clients.get(idx) {
+        let c = loop {
+            let client = match self.clients.get_mut(idx) {
                 Some(client) => client,
                 None => {
                     // Since default_idx is always either `0` or `clients.len()-1`, it's safe to unwrap
                     // here.
                     idx = default_idx;
-                    self.clients.get(idx).unwrap()
+                    self.clients.get_mut(idx).unwrap()
                 },
             };
 
             if client.get_type() != &ClientType::Dock {
-                break client.wid;
+                break client;
             }
 
             match dir {
@@ -140,8 +166,8 @@ impl Clients {
             };
         };
         
-        self.set_active(wid);
-        wid
+        // self.set_focused(c);
+        c.wid
     }
 
     /// Verifies if the client with the ID 'wid' is already being managed.
@@ -203,7 +229,7 @@ impl Clients {
 }
 
 impl Clients {
-    pub(self) fn resize_tiles(&self, screen: xcb::Screen) {
+    pub fn resize_tiles(&self, screen: xcb::Screen) {
         let border_size = self.config.border.size;
 
         // ....
@@ -319,27 +345,6 @@ impl Clients {
             0,
             &self.clients.iter().map(|c| c.wid).collect::<Vec<u32>>(),
         );
-    }
-
-    /// Sets the active window to the specified window ID. Configure the "_NET_ACTIVE_WINDOW" and
-    /// sets the input focus.
-    pub(self) fn set_active(&mut self, wid: u32) {
-        if let Some(idx) = self.clients.iter().position(|c| c.wid == wid) {
-            // Instead of updating each window's border during resizes, we can simply swap the borders
-            // between the currently active window and the window becoming active.
-            self.clients[self.active_client].set_border_color(&self.conn, self.config.border.inactive_color);
-            self.clients[idx].set_border_color(&self.conn, self.config.border.active_color);
-
-            ewmh::set_active_window(&self.conn, 0, wid);
-            self.active_client = idx;
-
-            xcb::set_input_focus(
-                &self.conn,
-                xcb::INPUT_FOCUS_PARENT as u8,
-                wid,
-                xcb::CURRENT_TIME,
-            );
-        }
     }
 
     /// Returns the maximum padding at the top among all clients.

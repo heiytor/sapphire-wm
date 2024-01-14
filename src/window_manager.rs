@@ -257,54 +257,56 @@ impl WindowManager {
         {
             // TODO: handle errors
             let mut clients = self.clients.lock().unwrap();
-            let wid = clients.get_client(event.window()).unwrap().wid;
+
+            let wid = match clients.get(event.window()) {
+                Some(client) => client.wid,
+                None => return,
+            };
 
             std::process::Command::new("kill")
                 .args(&["-9", &wid.to_string()])
                 .output()
                 .unwrap();
 
-            clients.unmanage(event.window());
+            clients.unmanage(wid);
+            clients.resize_tiles(util::get_screen(&self.conn));
         };
 
         self.conn.flush();
     }
 
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
+        let wid = event.window();
+
         let mut clients = self.clients.lock().unwrap();
-        if clients.contains(event.window()) {
+        if clients.contains(wid) {
             return;
         }
 
-        xcb::map_window(&self.conn, event.window());
+        xcb::map_window(&self.conn, wid);
 
-        let mut client = Client::new(event.window());
+        let mut client = Client::new(wid);
 
-        if let Ok(desktop) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
-            client.desktop = desktop;
+        if let Ok(tag) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
+            client.tag = tag;
         }
 
-        if let Ok(pid) = ewmh::get_wm_pid(&self.conn, event.window()).get_reply() {
+        if let Ok(pid) = ewmh::get_wm_pid(&self.conn, wid).get_reply() {
             client.pid = pid;
         }
 
-        if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
+        if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, wid).get_reply() {
             client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
         };
 
-        let mut r#type: ClientType = ClientType::Normal;
-        if util::window_has_type(&self.conn, event.window(), self.conn.WM_WINDOW_TYPE_DOCK()) {
-            r#type = ClientType::Dock;
+        if util::window_has_type(&self.conn, wid, self.conn.WM_WINDOW_TYPE_DOCK()) {
+            client.set_type(ClientType::Dock);
         }
-
-        if r#type != ClientType::Dock {
-            client.set_border_color(&self.conn, self.config.border.inactive_color);
-        }
-
-        client.set_type(r#type);
-        client.desktop = clients.active_desktop;
 
         clients.manage(client);
+        // clients.set_focused(c);
+        clients.resize_tiles(util::get_screen(&self.conn));
+
         self.conn.flush();
     }
 }

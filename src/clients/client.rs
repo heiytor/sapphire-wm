@@ -26,7 +26,10 @@ pub struct Client {
     pub padding_bottom: u32,
     pub padding_left: u32,
     pub padding_right: u32,
-    pub desktop: u32,
+
+    pub tag: u32,
+    pub screen: u32,
+    pub is_focused: bool,
 }
 
 impl Default for Client {
@@ -42,7 +45,9 @@ impl Default for Client {
             is_visible: false,
             r#type: ClientType::Normal,
             states: Vec::new(),
-            desktop: 0,
+            tag: 0,
+            screen: 0,
+            is_focused: false,
         }
     }
 }
@@ -60,7 +65,9 @@ impl Client {
             is_visible: true,
             r#type: ClientType::Normal,
             states: Vec::new(),
-            desktop: 0,
+            tag: 0,
+            screen: 0,
+            is_focused: false,
         }
     }
 }
@@ -210,6 +217,11 @@ impl Client {
             self.wid,
             &[(xcb::CW_BORDER_PIXEL, color)],
         );
+    }
+
+    /// Sends a destroy notification to the window manager with the client's window ID.
+    pub fn destroy(&self, conn: &ewmh::Connection) {
+        xcb::destroy_window(conn, self.wid);
     }
 }
 
