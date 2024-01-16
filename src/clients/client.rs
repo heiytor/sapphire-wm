@@ -14,13 +14,16 @@ pub enum ClientType {
     Normal,
 }
 
+pub type WindowID = u32;
+
 pub struct Client {
+    pub wid: WindowID,
+    pub pid: u32,
+
     is_controlled: bool,
     is_visible: bool,
     r#type: ClientType,
 
-    pub pid: u32,
-    pub wid: u32,
     pub states: Vec<ClientState>,
     pub padding_top: u32,
     pub padding_bottom: u32,
@@ -53,7 +56,7 @@ impl Default for Client {
 }
 
 impl Client {
-    pub fn new(wid: u32) -> Self {
+    pub fn new(wid: WindowID) -> Self {
         Client { 
             wid,
             pid: 0,
@@ -211,7 +214,7 @@ impl Client {
         }
     }
 
-    pub fn set_border_color(&self, conn: &ewmh::Connection, color: u32) {
+    pub fn set_border(&self, conn: &ewmh::Connection, color: u32) {
         xcb::change_window_attributes(
             conn,
             self.wid,
@@ -219,8 +222,17 @@ impl Client {
         );
     }
 
-    /// Sends a destroy notification to the window manager with the client's window ID.
-    pub fn destroy(&self, conn: &ewmh::Connection) {
+    pub fn set_input_focus(&self, conn: &ewmh::Connection) {
+        xcb::set_input_focus(
+            conn,
+            xcb::INPUT_FOCUS_PARENT as u8,
+            self.wid,
+            xcb::CURRENT_TIME
+        );
+    }
+
+    /// Sends a kill notification to the window manager with the client's window ID.
+    pub fn kill(&self, conn: &ewmh::Connection) {
         xcb::destroy_window(conn, self.wid);
     }
 }

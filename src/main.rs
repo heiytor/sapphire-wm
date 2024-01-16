@@ -7,7 +7,7 @@ mod window_manager;
 mod util;
 
 use action::{on_startup::OnStartup, on_keypress::OnKeypress};
-use clients::clients::Dir;
+use clients::{clients::Dir, client::ClientType};
 use config::Config;
 use event_context::EventContext;
 use util::modkeys;
@@ -40,45 +40,72 @@ fn main() {
     wm.on_startup(&[
         // OnStartup::new(OnStartup::spawn("picom")), // not working
         // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --blocks")),
-        // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
-        OnStartup::new(OnStartup::spawn("polybar")),
+        OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
+        // OnStartup::new(OnStartup::spawn("polybar")),
         OnStartup::new(OnStartup::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")),
     ]);
 
     let modkey = modkeys::MODKEY_4;
 
+    // TODO: abstract manager
     let mut on_keypress_actions = vec![
         OnKeypress::new(&[modkey], 'v', Box::new(|ctx: EventContext| {
-            ctx.spawn("alacritty")?;
-            Ok(())
+            ctx.spawn("alacritty")
         })),
-        OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
-            let clients = ctx.clients.lock().unwrap();
 
-            if let Some(c) = clients.get_focused(0, 0) {
-                println!("destroy is controlled {}", c.is_controlled());
-                c.destroy(&ctx.conn);
+        // Kill the focused client on the current tag.
+        OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
+            let manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag(0) {
+                tag.get_focused().map(|c| c.kill(&ctx.conn));
             }
 
             Ok(())
         })),
-        // // Move focus to left.
-        // OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
-        //     let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
-        //     _ = clients.move_focus(Dir::Left);
-        //     Ok(())
-        // })),
-        // // Move focus to right.
-        // OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
-        //     let mut clients = ctx.clients.lock().map_err(|e| e.to_string())?;
-        //     _ = clients.move_focus(Dir::Right);
-        //     Ok(())
-        // })),
+
+        // Move focus to left.
+        OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
+            let mut manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag_mut(0) {
+                _ = tag.walk(1, Dir::Left, |c| c.is_controlled()).map(|wid| tag.set_focused(&ctx.conn, wid));
+            }
+
+            Ok(())
+        })),
+
+        // Move focus to right.
+        OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
+            let mut manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag_mut(0) {
+                _ = tag.walk(1, Dir::Right, |c| c.is_controlled()).map(|wid| tag.set_focused(&ctx.conn, wid));
+            }
+
+            Ok(())
+        })),
+
+        // Swaps the current client on tag to the master window.
+        OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
+            let mut manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag_mut(0) {
+                if let (Some(c1), Some(c2)) = (tag.get_focused(), tag.get_first_when(|c| c.is_controlled())) {
+                    _ = tag.swap(c1.wid, c2.wid);
+                }
+            }
+
+            manager.update_tag(0);
+
+            Ok(())
+        })),
+
     ];
 
     
+    // Bind MODKEY + i to desktop[i].
     for i in 1..10 {
-        // Bind MODKEY + i to desktop[i].
         let func = Box::new(move |ctx: EventContext| -> Result<(), String> {
             xcb_util::ewmh::set_current_desktop(&ctx.conn, 0, i-1);
             Ok(())

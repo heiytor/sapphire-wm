@@ -2,7 +2,7 @@ use std::{sync::{Arc, Mutex}, collections::HashMap};
 
 use xcb_util::{ewmh, keysyms, cursor};
 
-use crate::{clients::{clients::Clients, client::{ClientType, Client}}, mouse::Mouse, util::{self, Operation}, event_context::EventContext, config::Config, action::{on_startup::OnStartup, on_keypress::OnKeypress}};
+use crate::{clients::{clients::{Clients, Manager, Tag}, client::{ClientType, Client}}, mouse::Mouse, util::{self, Operation}, event_context::EventContext, config::Config, action::{on_startup::OnStartup, on_keypress::OnKeypress}};
 
 
 pub struct WindowManager {
@@ -14,6 +14,10 @@ pub struct WindowManager {
     config: Arc<Config>,
     startup_actions: Vec<OnStartup>,
     keypress_actions: HashMap<u8, OnKeypress>,
+
+
+    // WORK IN PROGRESS
+    manager: Arc<Mutex<Manager>>,
 }
 
 impl WindowManager {
@@ -76,10 +80,18 @@ impl WindowManager {
         ewmh::set_current_desktop(&conn, 0, 0);
         ewmh::set_desktop_names(&conn, 0, config.virtual_desktops.iter().map(|d| d.as_ref()));
 
+        let mut tags: Vec<Tag> = vec![];
+        for (i, t) in config.virtual_desktops.iter().enumerate() {
+            let tag = Tag::new(i as u32, t);
+            tags.push(tag);
+        }
+
         conn.flush();
 
         let conn = Arc::new(conn);
         let config = Arc::new(config);
+
+        let manager = Manager::new(conn.clone(), tags, config.clone());
 
         WindowManager {
             startup_actions: Vec::new(),
@@ -88,6 +100,8 @@ impl WindowManager {
             mouse: Mouse::new(conn.clone()),
             config,
             conn,
+
+            manager: Arc::new(Mutex::new(manager)),
         }
     }
 }
@@ -176,11 +190,18 @@ impl WindowManager {
 
                 match self.keypress_actions.get(&event.detail()) {
                     Some(action) => {
-                        let ctx = EventContext::new(
-                            self.conn.clone(),
-                            0,
-                            self.clients.clone(),
-                        );
+                        let ctx = EventContext {
+                            conn: self.conn.clone(),
+                            clients: self.clients.clone(),
+
+                            manager: self.manager.clone(),
+                            curr_tag: 0,
+                        };
+                        // let ctx = EventContext::new(
+                        //     self.conn.clone(),
+                        //     0,
+                        //     self.clients.clone(),
+                        // );
 
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
                         self.conn.flush();
@@ -254,23 +275,41 @@ impl WindowManager {
     }
 
     pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
-        {
-            // TODO: handle errors
-            let mut clients = self.clients.lock().unwrap();
+        // {
+        //     // TODO: handle errors
+        //     let mut clients = self.clients.lock().unwrap();
+        //
+        //     let wid = match clients.get(event.window()) {
+        //         Some(client) => client.wid,
+        //         None => return,
+        //     };
+        //
+        //     std::process::Command::new("kill")
+        //         .args(&["-9", &wid.to_string()])
+        //         .output()
+        //         .unwrap();
+        //
+        //     clients.unmanage(wid);
+        //     clients.resize_tiles(util::get_screen(&self.conn));
+        // };
+        let mut manager = self.manager.lock().unwrap();
+        let tag = manager.get_tag_mut(0).unwrap();
 
-            let wid = match clients.get(event.window()) {
-                Some(client) => client.wid,
-                None => return,
-            };
-
-            std::process::Command::new("kill")
-                .args(&["-9", &wid.to_string()])
-                .output()
-                .unwrap();
-
-            clients.unmanage(wid);
-            clients.resize_tiles(util::get_screen(&self.conn));
+        let wid = match tag.get(event.window()) {
+            Some(c) => c.wid,
+            None => return,
         };
+
+        tag.unmanage(wid);
+        std::process::Command::new("kill").args(&["-9", &wid.to_string()]).output().unwrap();
+
+        // Focus the master (first) client if any.
+        if let Some(c) = tag.get_first_when(|c| c.is_controlled()) {
+            _ = tag.set_focused(&self.conn, c.wid);
+        }
+        
+        manager.update_tag(0);
+        manager.refresh();
 
         self.conn.flush();
     }
@@ -278,10 +317,7 @@ impl WindowManager {
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
         let wid = event.window();
 
-        let mut clients = self.clients.lock().unwrap();
-        if clients.contains(wid) {
-            return;
-        }
+        // TODO: early return when the wm already manages the window
 
         xcb::map_window(&self.conn, wid);
 
@@ -303,9 +339,14 @@ impl WindowManager {
             client.set_type(ClientType::Dock);
         }
 
-        clients.manage(client);
-        // clients.set_focused(c);
-        clients.resize_tiles(util::get_screen(&self.conn));
+        let mut manager = self.manager.lock().unwrap();
+
+        let tag = manager.get_tag_mut(0).unwrap();
+        tag.manage(client);
+        _ = tag.set_focused_if(&self.conn, wid, |c| c.get_type() == &ClientType::Normal);
+
+        manager.update_tag(0);
+        manager.refresh();
 
         self.conn.flush();
     }
