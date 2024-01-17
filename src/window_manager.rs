@@ -5,7 +5,6 @@ use xcb_util::{ewmh, keysyms, cursor};
 use crate::{
     clients::{
         clients::{
-            Clients,
             Manager,
             Tag
         },
@@ -29,7 +28,6 @@ use crate::{
 pub struct WindowManager {
     pub conn: Arc<ewmh::Connection>,
 
-    pub clients: Arc<Mutex<Clients>>,
     pub mouse: Mouse,
 
     config: Arc<Config>,
@@ -138,7 +136,6 @@ impl WindowManager {
         WindowManager {
             startup_actions: Vec::new(),
             keypress_actions: HashMap::new(),
-            clients: Arc::new(Mutex::new(Clients::new(conn.clone(), config.clone()))),
             mouse: Mouse::new(conn.clone()),
             config,
             conn,
@@ -236,16 +233,9 @@ impl WindowManager {
                     Some(action) => {
                         let ctx = EventContext {
                             conn: self.conn.clone(),
-                            clients: self.clients.clone(),
-
                             manager: self.manager.clone(),
                             curr_tag: 0,
                         };
-                        // let ctx = EventContext::new(
-                        //     self.conn.clone(),
-                        //     0,
-                        //     self.clients.clone(),
-                        // );
 
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
                         self.conn.flush();
