@@ -1,10 +1,5 @@
 use xcb_util::ewmh;
 
-#[inline]
-pub fn to_keysym(ch: char) -> u32 {
-    ch as u32
-}
-
 #[allow(dead_code)]
 pub mod modkeys {
     pub const MODKEY_1: u16 = xcb::MOD_MASK_1 as u16;
@@ -15,13 +10,6 @@ pub mod modkeys {
     pub const MODKEY_LOCK: u16 = xcb::MOD_MASK_LOCK as u16;
     pub const MODKEY_SHIFT: u16 = xcb::MOD_MASK_SHIFT as u16;
     pub const MODKEY_CONTROL: u16 = xcb::MOD_MASK_CONTROL as u16;
-}
-
-pub enum Operation {
-    Add,
-    Remove,
-    Toggle,
-    Unknown,
 }
 
 /// NOTE:

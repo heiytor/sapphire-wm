@@ -7,7 +7,7 @@ mod window_manager;
 mod util;
 
 use action::{on_startup::OnStartup, on_keypress::OnKeypress};
-use clients::{clients::Dir, client::ClientType};
+use clients::{clients::Dir, client::ClientState};
 use config::Config;
 use event_context::EventContext;
 use util::modkeys;
@@ -40,21 +40,25 @@ fn main() {
     wm.on_startup(&[
         // OnStartup::new(OnStartup::spawn("picom")), // not working
         // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --blocks")),
-        OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
-        // OnStartup::new(OnStartup::spawn("polybar")),
+        // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
+        OnStartup::new(OnStartup::spawn("polybar")),
         OnStartup::new(OnStartup::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")),
     ]);
 
-    let modkey = modkeys::MODKEY_4;
+    let modkey = modkeys::MODKEY_SHIFT;
 
     // TODO: abstract manager
     let mut on_keypress_actions = vec![
-        OnKeypress::new(&[modkey], 'v', Box::new(|ctx: EventContext| {
+        OnKeypress::new(&[modkey], "a",  Box::new(|ctx: EventContext| {
             ctx.spawn("alacritty")
         })),
 
+        OnKeypress::new(&[modkey], "s",  Box::new(|ctx: EventContext| {
+            ctx.spawn("google-chrome-stable")
+        })),
+
         // Kill the focused client on the current tag.
-        OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
+        OnKeypress::new(&[modkey], "End", Box::new(|ctx: EventContext| {
             let manager = ctx.manager.lock().unwrap();
 
             if let Some(tag) = manager.get_tag(0) {
@@ -65,7 +69,7 @@ fn main() {
         })),
 
         // Move focus to left.
-        OnKeypress::new(&[modkey], 'z', Box::new(|ctx: EventContext| {
+        OnKeypress::new(&[modkey], "h", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
             if let Some(tag) = manager.get_tag_mut(0) {
@@ -76,7 +80,7 @@ fn main() {
         })),
 
         // Move focus to right.
-        OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
+        OnKeypress::new(&[modkey], "l", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
             if let Some(tag) = manager.get_tag_mut(0) {
@@ -87,7 +91,7 @@ fn main() {
         })),
 
         // Swaps the current client on tag to the master window.
-        OnKeypress::new(&[modkey], 'y', Box::new(|ctx: EventContext| {
+        OnKeypress::new(&[modkey], "Return", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
             if let Some(tag) = manager.get_tag_mut(0) {
@@ -101,6 +105,47 @@ fn main() {
             Ok(())
         })),
 
+        // Toggle fullscreen mode for the currently focused client.
+        OnKeypress::new(&[modkey], "f", Box::new(|ctx: EventContext| {
+            let mut manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag_mut(0) {
+                if let Some(c) = tag.get_focused_mut() {
+                    let target = ClientState::Fullscreen;
+                    
+                    if c.has_state(&target) {
+                        c.remove_state(&ctx.conn, target);
+                    } else {
+                        c.add_state(&ctx.conn, target);
+                    }
+
+                    manager.update_tag(0);
+                }
+            }
+
+            Ok(())
+        })),
+
+        // Toggle maximized mode for the currently focused client.
+        OnKeypress::new(&[modkey], "m", Box::new(|ctx: EventContext| {
+            let mut manager = ctx.manager.lock().unwrap();
+
+            if let Some(tag) = manager.get_tag_mut(0) {
+                if let Some(c) = tag.get_focused_mut() {
+                    let target = ClientState::Maximized;
+
+                    if c.has_state(&target) {
+                        c.remove_state(&ctx.conn, target);
+                    } else {
+                        c.add_state(&ctx.conn, target);
+                    }
+
+                    manager.update_tag(0);
+                }
+            }
+
+            Ok(())
+        })),
     ];
 
     
@@ -111,9 +156,8 @@ fn main() {
             Ok(())
         });
 
-        let char_i = char::from_digit(i, 10).expect("Failed to convert to char");
-
-        on_keypress_actions.push(OnKeypress::new(&[modkey], char_i, func));
+        let i = i.to_string();
+        on_keypress_actions.push(OnKeypress::new(&[modkey], &i, func));
     }
 
     wm.on_keypress(on_keypress_actions.as_slice());

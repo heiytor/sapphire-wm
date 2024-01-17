@@ -2,9 +2,9 @@ use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
 
-use crate::{util::{self, Operation}, clients::client::ClientState, config::Config};
+use crate::{util, config::Config, clients::client::ClientState};
 
-use super::client::{Client, ClientType, WindowID};
+use super::client::{Client, WindowID};
 
 #[derive(Default)]
 pub struct Tag {
@@ -61,6 +61,11 @@ impl Tag {
     /// Retrieves an immutable reference to the focused client.
     pub fn get_focused(&self) -> Option<&Client> {
         self.clients.iter().find(|c| c.wid == self.focused_wid)
+    }
+
+    /// Retrieves a mutable reference to the focused client.
+    pub fn get_focused_mut(&mut self) -> Option<&mut Client> {
+        self.clients.iter_mut().find(|c| c.wid == self.focused_wid)
     }
 
     /// Sets focus on a client with the specified window ID, updating the border to `active_color`
@@ -231,7 +236,6 @@ impl Manager {
         let screen = util::get_screen(&self.conn);
         let screen_w = screen.width_in_pixels() as u32;
         let screen_h = screen.height_in_pixels() as u32;
-        println!("{}x{}", screen_w, screen_h);
 
         let (padding_top, padding_bottom, padding_left, padding_right) = tag.paddings();
 
@@ -239,7 +243,6 @@ impl Manager {
         // They are the total screen dimensions minus the specified paddings.
         let available_w = screen_w - padding_left - padding_right;
         let available_h = screen_h - padding_top - padding_bottom;
-        println!("{}x{}", available_w, available_h);
 
         let normal_clients: Vec<&Client> = clients
             .iter()
@@ -291,9 +294,28 @@ impl Manager {
             );
         }
 
+        let maximized_clients: Vec<&Client> = clients
+            .iter()
+            .filter(|c| c.last_state() == &ClientState::Maximized && c.is_controlled() && c.is_visible())
+            .collect();
+
+        for client in maximized_clients.iter() {
+            xcb::configure_window(
+                &self.conn,
+                client.wid,
+                &[
+                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+                    (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
+                    (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
+                    (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left),
+                    (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top),
+                ],
+            );
+        }
+
         let fullscreen_clients: Vec<&Client> = clients
             .iter()
-            .filter(|c| c.has_state(&ClientState::Fullscreen) && c.is_controlled() && c.is_visible())
+            .filter(|c| c.last_state() == &ClientState::Fullscreen && c.is_controlled() && c.is_visible())
             .collect();
 
         for client in fullscreen_clients.iter() {
@@ -310,24 +332,6 @@ impl Manager {
             );
         }
 
-        let maximized_clients: Vec<&Client> = clients
-            .iter()
-            .filter(|c| c.has_state(&ClientState::Maximized) && c.is_controlled() && c.is_visible())
-            .collect();
-
-        for client in maximized_clients.iter() {
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
-                    (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left - padding_right),
-                    (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top - padding_bottom),
-                ],
-            );
-        }
 
         self.conn.flush();
     }
@@ -391,19 +395,6 @@ pub const MASTER_CLIENT: usize = 0;
 
 #[allow(dead_code)]
 impl Clients {
-    /// Adds a new X window that the window manager should managea and updates the
-    /// `_NET_CLIENT_LIST` to include the created window.
-    pub fn manage(&mut self, client: Client) {
-        self.clients.push_front(client);
-        self.refresh_client_list();
-    }
-
-    /// Unmanages an X window and removes it from the `_NET_CLIENT_LIST`.
-    pub fn unmanage(&mut self, wid: u32) {
-        self.clients.retain(|c| c.wid != wid);
-        self.refresh_client_list();
-    }
-
     /// Retrieves a client with the specified window ID.
     #[inline]
     pub fn get(&self, wid: u32) -> Option<&Client> {
@@ -457,125 +448,56 @@ impl Clients {
         );
     }
 
-    /// Swaps the master client to the active client. If the active client is already the
-    /// master, do nothing.
-    pub fn swap_master(&mut self) {
-        if self.active_client == 0 {
-            return
-        }
+    // /// Sets the fullscreen state for the clients with wid based on the specified state `state`.
+    // /// If the wid is equal to 0, sets for the active client.
+    // pub fn set_fullscreen(&mut self, wid: u32, action: Operation) -> Result<(), String> {
+    //     let client: &mut Client = if wid != 0 {
+    //         match self.clients.iter_mut().find(|c| c.wid == wid) {
+    //             Some(client) => client,
+    //             None => return Err(format!("Client with wid {} not found", wid)),
+    //         }
+    //     } else {
+    //         match self.clients.get_mut(0) {
+    //             Some(client) => client,
+    //             None => return Err("No clients available".to_string()),
+    //         }
+    //     };
+    //
+    //     let status = client.set_state(ClientState::Fullscreen, action)?;
+    //     let data = if status { self.conn.WM_STATE_FULLSCREEN() } else { 0 };
+    //
+    //     xcb::change_property(
+    //         &self.conn,
+    //         xcb::PROP_MODE_REPLACE as u8,
+    //         client.wid,
+    //         self.conn.WM_STATE(),
+    //         xcb::ATOM_ATOM,
+    //         32,
+    //         &[data],
+    //     );
+    //
+    //     self.resize_tiles(util::get_screen(&self.conn));
+    //     Ok(())
+    // }
 
-        self.clients.swap(MASTER_CLIENT, self.active_client);
-        // self.set_focused(&mut self.clients[MASTER_CLIENT]);
-        self.resize_tiles(util::get_screen(&self.conn));
-    }
-
-    /// Moves the focus to the next client in the specified direction (`Dir`), automatically looping
-    /// back to the beginning if reaching the last client and vice versa. Returns the window ID of
-    /// the newly focused window.
-    /// 
-    /// # Examples
-    /// 
-    /// ```
-    /// let mut clients = Clients::default();
-    /// let focused_wid = clients.move_focus(Dir::Left);
-    /// ```
-    pub fn move_focus(&mut self, dir: Dir) -> u32 {
-        let (mut idx, std_idx) = match dir {
-            Dir::Right => {
-                (
-                    self.active_client + 1, 
-                    0,
-                )
-            },
-            Dir::Left => {
-                (
-                    self.active_client.checked_sub(1).unwrap_or_else(|| self.clients.len() - 1),
-                    self.clients.len() - 1,
-                )
-            }
-        };
-
-        let c = loop {
-            let client = match self.clients.get_mut(idx) {
-                Some(client) => client,
-                None => {
-                    // Since std_idx is always either `0` or `clients.len()-1`, it's safe to unwrap
-                    // here.
-                    idx = std_idx;
-                    self.clients.get_mut(idx).unwrap()
-                },
-            };
-
-            if client.get_type() != &ClientType::Dock {
-                break client;
-            }
-
-            match dir {
-                Dir::Left => idx -= 1,
-                Dir::Right => idx += 1, 
-            };
-        };
-        
-        // self.set_focused(c);
-        c.wid
-    }
-
-    /// Verifies if the client with the ID 'wid' is already being managed.
-    #[inline]
-    pub fn contains(&self, wid: u32) -> bool {
-        self.clients.iter().any(|c| c.wid == wid)
-    }
-
-    /// Sets the fullscreen state for the clients with wid based on the specified state `state`.
-    /// If the wid is equal to 0, sets for the active client.
-    pub fn set_fullscreen(&mut self, wid: u32, action: Operation) -> Result<(), String> {
-        let client: &mut Client = if wid != 0 {
-            match self.clients.iter_mut().find(|c| c.wid == wid) {
-                Some(client) => client,
-                None => return Err(format!("Client with wid {} not found", wid)),
-            }
-        } else {
-            match self.clients.get_mut(0) {
-                Some(client) => client,
-                None => return Err("No clients available".to_string()),
-            }
-        };
-
-        let status = client.set_state(ClientState::Fullscreen, action)?;
-        let data = if status { self.conn.WM_STATE_FULLSCREEN() } else { 0 };
-
-        xcb::change_property(
-            &self.conn,
-            xcb::PROP_MODE_REPLACE as u8,
-            client.wid,
-            self.conn.WM_STATE(),
-            xcb::ATOM_ATOM,
-            32,
-            &[data],
-        );
-
-        self.resize_tiles(util::get_screen(&self.conn));
-        Ok(())
-    }
-
-    pub fn set_maximized(&mut self, wid: u32, action: Operation) -> Result<(), String> {
-        let client: &mut Client = if wid != 0 {
-            match self.clients.iter_mut().find(|c| c.wid == wid) {
-                Some(client) => client,
-                None => return Err(format!("Client with wid {} not found", wid)),
-            }
-        } else {
-            match self.clients.get_mut(0) {
-                Some(client) => client,
-                None => return Err("No clients available".to_string()),
-            }
-        };
-
-        _ = client.set_state(ClientState::Maximized, action)?;
-
-        self.resize_tiles(util::get_screen(&self.conn));
-        Ok(())
-    }
+    // pub fn set_maximized(&mut self, wid: u32, action: Operation) -> Result<(), String> {
+    //     let client: &mut Client = if wid != 0 {
+    //         match self.clients.iter_mut().find(|c| c.wid == wid) {
+    //             Some(client) => client,
+    //             None => return Err(format!("Client with wid {} not found", wid)),
+    //         }
+    //     } else {
+    //         match self.clients.get_mut(0) {
+    //             Some(client) => client,
+    //             None => return Err("No clients available".to_string()),
+    //         }
+    //     };
+    //
+    //     _ = client.set_state(ClientState::Maximized, action)?;
+    //
+    //     self.resize_tiles(util::get_screen(&self.conn));
+    //     Ok(())
+    // }
 }
 
 impl Clients {
@@ -646,43 +568,43 @@ impl Clients {
             );
         }
 
-        let fullscreen_clients: Vec<&Client> = self.clients
-            .iter()
-            .filter(|c| c.has_state(&ClientState::Fullscreen) && c.is_controlled() && c.is_visible())
-            .collect();
-
-        for client in fullscreen_clients.iter() {
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
-                    (xcb::CONFIG_WINDOW_X as u16, 0),
-                    (xcb::CONFIG_WINDOW_Y as u16, 0),
-                ],
-            );
-        }
-
-        let maximized_clients: Vec<&Client> = self.clients
-            .iter()
-            .filter(|c| c.has_state(&ClientState::Maximized) && c.is_controlled() && c.is_visible())
-            .collect();
-
-        for client in maximized_clients.iter() {
-            xcb::configure_window(
-                &self.conn,
-                client.wid,
-                &[
-                    (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-                    (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
-                    (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
-                    (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left - padding_right),
-                    (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top - padding_bottom),
-                ],
-            );
-        }
+        // let fullscreen_clients: Vec<&Client> = self.clients
+        //     .iter()
+        //     .filter(|c| c.has_state(&ClientState::Fullscreen) && c.is_controlled() && c.is_visible())
+        //     .collect();
+        //
+        // for client in fullscreen_clients.iter() {
+        //     xcb::configure_window(
+        //         &self.conn,
+        //         client.wid,
+        //         &[
+        //             (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+        //             (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
+        //             (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
+        //             (xcb::CONFIG_WINDOW_X as u16, 0),
+        //             (xcb::CONFIG_WINDOW_Y as u16, 0),
+        //         ],
+        //     );
+        // }
+        //
+        // let maximized_clients: Vec<&Client> = self.clients
+        //     .iter()
+        //     .filter(|c| c.has_state(&ClientState::Maximized) && c.is_controlled() && c.is_visible())
+        //     .collect();
+        //
+        // for client in maximized_clients.iter() {
+        //     xcb::configure_window(
+        //         &self.conn,
+        //         client.wid,
+        //         &[
+        //             (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+        //             (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
+        //             (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
+        //             (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left - padding_right),
+        //             (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top - padding_bottom),
+        //         ],
+        //     );
+        // }
 
         self.conn.flush();
     }

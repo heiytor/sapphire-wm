@@ -2,7 +2,28 @@ use std::{sync::{Arc, Mutex}, collections::HashMap};
 
 use xcb_util::{ewmh, keysyms, cursor};
 
-use crate::{clients::{clients::{Clients, Manager, Tag}, client::{ClientType, Client}}, mouse::Mouse, util::{self, Operation}, event_context::EventContext, config::Config, action::{on_startup::OnStartup, on_keypress::OnKeypress}};
+use crate::{
+    clients::{
+        clients::{
+            Clients,
+            Manager,
+            Tag
+        },
+        client::{
+            Client,
+            ClientType,
+            ClientState,
+        },
+    },
+    mouse::Mouse,
+    util,
+    event_context::EventContext,
+    config::Config,
+    action::{
+        on_startup::OnStartup,
+        on_keypress::OnKeypress
+    },
+};
 
 
 pub struct WindowManager {
@@ -32,8 +53,8 @@ impl WindowManager {
             &[(
                 xcb::CW_EVENT_MASK,
                 xcb::EVENT_MASK_SUBSTRUCTURE_REDIRECT | xcb::EVENT_MASK_SUBSTRUCTURE_NOTIFY,
-                )],
-                );
+            )],
+        );
         if cookie.request_check().is_err() {
             panic!("Unable to change window attributes. Is another window manager running?")
         }
@@ -44,15 +65,36 @@ impl WindowManager {
             &[
                 conn.SUPPORTED(),
                 conn.SUPPORTING_WM_CHECK(),
-                conn.ACTIVE_WINDOW(),
+
                 conn.CLIENT_LIST(),
-                // conn.CURRENT_DESKTOP(), *
-                // conn.DESKTOP_NAMES(), *
-                // conn.NUMBER_OF_DESKTOPS(), *
+
+                conn.ACTIVE_WINDOW(),
+                conn.CURRENT_DESKTOP(),
+                conn.DESKTOP_NAMES(),
+                conn.NUMBER_OF_DESKTOPS(),
+
                 conn.WM_STATE(),
                 conn.WM_STATE_FULLSCREEN(),
-                // conn.WM_WINDOW_TYPE(),
-                // conn.WM_WINDOW_TYPE_DIALOG(),
+                conn.WM_STATE_MAXIMIZED_VERT(),
+                conn.WM_STATE_MAXIMIZED_HORZ(),
+                conn.WM_STATE_STICKY(),
+
+                conn.WM_WINDOW_TYPE(),
+                conn.WM_WINDOW_TYPE_DOCK(),
+
+                conn.WM_ACTION_FULLSCREEN(),
+                conn.WM_ACTION_MAXIMIZE_VERT(),
+                conn.WM_ACTION_MAXIMIZE_HORZ(),
+                conn.WM_ACTION_CLOSE(),
+                conn.WM_ACTION_CHANGE_DESKTOP(),
+                conn.WM_ACTION_RESIZE(),
+                conn.WM_ACTION_MOVE(),
+                // conn.WM_ACTION_MINIMIZE(), 
+
+                conn.WM_STRUT(),
+                conn.WM_STRUT_PARTIAL(),
+
+                conn.WM_PID(),
             ],
         );
 
@@ -119,8 +161,8 @@ impl WindowManager {
         let screen = util::get_screen(&self.conn);
 
         for action in actions.iter() {
-            match key_symbols.get_keycode(util::to_keysym(action.ch)).next() {
-                Some(keycode) => {
+            match action.keycode(&key_symbols) {
+                Ok(keycode) => {
                     self.keypress_actions.insert(keycode, action.clone());
                     // Instruct XCB to send a KEY_PRESS event when the keys are pressed.
                     xcb::grab_key(
@@ -128,13 +170,15 @@ impl WindowManager {
                         false,
                         screen.root(),
                         // Obtain the combined mask for modkey.
-                        action.modkey.iter().fold(0, |acc, &val| acc | val), 
+                        // action.modkey.iter().fold(0, |acc, &val| acc | val), 
+                        action.modifier(),
                         keycode,
                         xcb::GRAB_MODE_ASYNC as u8,
                         xcb::GRAB_MODE_ASYNC as u8,
                     );
                 },
-                _ => panic!("Failed to find keycode for char: {}", action.ch),
+                // TODO: remove panic
+                _ => panic!("Failed to find keycode for char"),
             };
         }
 
@@ -219,24 +263,24 @@ impl WindowManager {
         if event.type_() == self.conn.WM_STATE() {
             // SEE:
             // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
-            let data = event.data().data32();
+            // let data = event.data().data32();
+            //
+            // let action = match data[0] {
+            //     ewmh::STATE_ADD => Operation::Add,
+            //     ewmh::STATE_REMOVE => Operation::Remove,
+            //     ewmh::STATE_TOGGLE => Operation::Toggle,
+            //     _ => Operation::Unknown,
+            // };
+            // let property = data[1];
 
-            let action = match data[0] {
-                ewmh::STATE_ADD => Operation::Add,
-                ewmh::STATE_REMOVE => Operation::Remove,
-                ewmh::STATE_TOGGLE => Operation::Toggle,
-                _ => Operation::Unknown,
-            };
-            let property = data[1];
-
-            {
-                let mut clients = self.clients.lock().unwrap();
-                if property == self.conn.WM_STATE_FULLSCREEN() {
-                    _ = clients
-                        .set_fullscreen(event.window(), action)
-                        .map_err(|e| util::notify_error(e));
-                }
-            };
+            // {
+            //     let mut clients = self.clients.lock().unwrap();
+            //     if property == self.conn.WM_STATE_FULLSCREEN() {
+            //         _ = clients
+            //             .set_fullscreen(event.window(), action)
+            //             .map_err(|e| util::notify_error(e));
+            //     }
+            // };
         }
 
         self.conn.flush();
@@ -275,23 +319,6 @@ impl WindowManager {
     }
 
     pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
-        // {
-        //     // TODO: handle errors
-        //     let mut clients = self.clients.lock().unwrap();
-        //
-        //     let wid = match clients.get(event.window()) {
-        //         Some(client) => client.wid,
-        //         None => return,
-        //     };
-        //
-        //     std::process::Command::new("kill")
-        //         .args(&["-9", &wid.to_string()])
-        //         .output()
-        //         .unwrap();
-        //
-        //     clients.unmanage(wid);
-        //     clients.resize_tiles(util::get_screen(&self.conn));
-        // };
         let mut manager = self.manager.lock().unwrap();
         let tag = manager.get_tag_mut(0).unwrap();
 
@@ -335,9 +362,33 @@ impl WindowManager {
             client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
         };
 
+        // See: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142837824
+        let mut allowed_actions = vec![self.conn.WM_ACTION_CLOSE()];
+
+        // TODO: get min and max sizes
+        // if let Ok(hints) = icccm::get_wm_size_hints(&self.conn, wid, xcb::ATOM_WM_NORMAL_HINTS).get_reply() {
+        //     if let Some(min) = hints.min_size() {
+        //         println!("min {} {}", min.0, min.1);
+        //     }
+        //
+        //     if let Some(max) = hints.max_size() {
+        //         println!("max {} {}", max.0, max.1);
+        //     }
+        // }
+
         if util::window_has_type(&self.conn, wid, self.conn.WM_WINDOW_TYPE_DOCK()) {
             client.set_type(ClientType::Dock);
+            client.add_state(&self.conn, ClientState::Sticky);
+        } else {
+            allowed_actions.push(self.conn.WM_ACTION_MAXIMIZE_HORZ());
+            allowed_actions.push(self.conn.WM_ACTION_MAXIMIZE_VERT());
+            allowed_actions.push(self.conn.WM_ACTION_FULLSCREEN());
+            allowed_actions.push(self.conn.WM_ACTION_CHANGE_DESKTOP());
+            allowed_actions.push(self.conn.WM_ACTION_RESIZE());
+            allowed_actions.push(self.conn.WM_ACTION_MOVE());
         }
+
+        ewmh::set_wm_allowed_actions(&self.conn, wid, allowed_actions.as_slice());
 
         let mut manager = self.manager.lock().unwrap();
 
