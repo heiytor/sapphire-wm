@@ -12,7 +12,7 @@ use crate::{
         client::{
             Client,
             ClientType,
-            ClientState,
+            ClientState, ClientAction,
         },
     },
     mouse::Mouse,
@@ -349,6 +349,7 @@ impl WindowManager {
         xcb::map_window(&self.conn, wid);
 
         let mut client = Client::new(wid);
+        client.allow_action(&self.conn, ClientAction::Close);
 
         if let Ok(tag) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
             client.tag = tag;
@@ -361,9 +362,6 @@ impl WindowManager {
         if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, wid).get_reply() {
             client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
         };
-
-        // See: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142837824
-        let mut allowed_actions = vec![self.conn.WM_ACTION_CLOSE()];
 
         // TODO: get min and max sizes
         // if let Ok(hints) = icccm::get_wm_size_hints(&self.conn, wid, xcb::ATOM_WM_NORMAL_HINTS).get_reply() {
@@ -380,21 +378,23 @@ impl WindowManager {
             client.set_type(ClientType::Dock);
             client.add_state(&self.conn, ClientState::Sticky);
         } else {
-            allowed_actions.push(self.conn.WM_ACTION_MAXIMIZE_HORZ());
-            allowed_actions.push(self.conn.WM_ACTION_MAXIMIZE_VERT());
-            allowed_actions.push(self.conn.WM_ACTION_FULLSCREEN());
-            allowed_actions.push(self.conn.WM_ACTION_CHANGE_DESKTOP());
-            allowed_actions.push(self.conn.WM_ACTION_RESIZE());
-            allowed_actions.push(self.conn.WM_ACTION_MOVE());
+            client.allow_actions(
+                &self.conn,
+                vec![
+                    ClientAction::Maximize,
+                    ClientAction::Fullscreen,
+                    ClientAction::ChangeTag,
+                    ClientAction::Resize,
+                    ClientAction::Move,
+                ],
+            );
         }
-
-        ewmh::set_wm_allowed_actions(&self.conn, wid, allowed_actions.as_slice());
 
         let mut manager = self.manager.lock().unwrap();
 
         let tag = manager.get_tag_mut(0).unwrap();
         tag.manage(client);
-        _ = tag.set_focused_if(&self.conn, wid, |c| c.get_type() == &ClientType::Normal);
+        _ = tag.set_focused_if(&self.conn, wid, |c| c.is_controlled());
 
         manager.update_tag(0);
         manager.refresh();

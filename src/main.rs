@@ -7,7 +7,7 @@ mod window_manager;
 mod util;
 
 use action::{on_startup::OnStartup, on_keypress::OnKeypress};
-use clients::{clients::Dir, client::ClientState};
+use clients::{clients::Dir, client::{ClientState, ClientAction}};
 use config::Config;
 use event_context::EventContext;
 use util::modkeys;
@@ -111,12 +111,16 @@ fn main() {
 
             if let Some(tag) = manager.get_tag_mut(0) {
                 if let Some(c) = tag.get_focused_mut() {
-                    let target = ClientState::Fullscreen;
+                    if !c.allows_action(&ClientAction::Fullscreen) {
+                        return Ok(())
+                    }
+
+                    let state = ClientState::Fullscreen;
                     
-                    if c.has_state(&target) {
-                        c.remove_state(&ctx.conn, target);
+                    if c.has_state(&state) {
+                        c.remove_state(&ctx.conn, state);
                     } else {
-                        c.add_state(&ctx.conn, target);
+                        c.add_state(&ctx.conn, state);
                     }
 
                     manager.update_tag(0);
@@ -132,12 +136,16 @@ fn main() {
 
             if let Some(tag) = manager.get_tag_mut(0) {
                 if let Some(c) = tag.get_focused_mut() {
-                    let target = ClientState::Maximized;
+                    if !c.allows_action(&ClientAction::Maximize) {
+                        return Ok(())
+                    }
 
-                    if c.has_state(&target) {
-                        c.remove_state(&ctx.conn, target);
+                    let state = ClientState::Maximized;
+
+                    if c.has_state(&state) {
+                        c.remove_state(&ctx.conn, state);
                     } else {
-                        c.add_state(&ctx.conn, target);
+                        c.add_state(&ctx.conn, state);
                     }
 
                     manager.update_tag(0);
