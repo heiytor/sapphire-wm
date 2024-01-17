@@ -4,14 +4,24 @@ mod config;
 mod event_context;
 mod mouse;
 mod window_manager;
+mod tag;
 mod util;
 
-use action::{on_startup::OnStartup, on_keypress::OnKeypress};
-use clients::{clients::Dir, client::{ClientState, ClientAction}};
-use config::Config;
-use event_context::EventContext;
-use util::modkeys;
-use window_manager::WindowManager;
+use crate::{
+    action::{
+        on_startup::OnStartup,
+        on_keypress::OnKeypress,
+    },
+    clients::{
+        client_action::ClientAction,
+        client_state::ClientState,
+    },
+    config::Config,
+    event_context::EventContext,
+    util::modkeys,
+    window_manager::WindowManager,
+    tag::Dir,
+};
 
 fn main() {
     let mut config = Config::default();

@@ -4,15 +4,10 @@ use xcb_util::{ewmh, keysyms, cursor};
 
 use crate::{
     clients::{
-        clients::{
-            Manager,
-            Tag
-        },
-        client::{
-            Client,
-            ClientType,
-            ClientState, ClientAction,
-        },
+        Client,
+        client_action::ClientAction,
+        client_state::ClientState,
+        client_type::ClientType,
     },
     mouse::Mouse,
     util,
@@ -21,6 +16,10 @@ use crate::{
     action::{
         on_startup::OnStartup,
         on_keypress::OnKeypress
+    },
+    tag::{
+        Manager,
+        Tag,
     },
 };
 

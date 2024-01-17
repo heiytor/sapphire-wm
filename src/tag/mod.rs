@@ -2,9 +2,15 @@ use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
 
-use crate::{util, config::Config, clients::client::ClientState};
-
-use super::client::{Client, WindowID};
+use crate::{
+    util,
+    config::Config,
+    clients::{
+        Client,
+        WindowID,
+        client_state::ClientState,
+    },
+};
 
 pub enum Dir {
     Left,
