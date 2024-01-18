@@ -73,6 +73,11 @@ impl Tag {
     pub fn get(&self, wid: WindowID) -> Option<&Client> {
         self.clients.iter().find(|c| c.wid == wid)
     }
+    
+    /// Retrieves an immutable reference to the client with the specified window ID.
+    pub fn get_mut(&mut self, wid: WindowID) -> Option<&mut Client> {
+        self.clients.iter_mut().find(|c| c.wid == wid)
+    }
 
     /// Retrieves an immutable reference to the focused client.
     pub fn get_focused(&self) -> Option<&Client> {

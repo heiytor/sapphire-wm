@@ -12,6 +12,13 @@ pub mod modkeys {
     pub const MODKEY_CONTROL: u16 = xcb::MOD_MASK_CONTROL as u16;
 }
 
+pub enum Operation {
+    Add,
+    Remove,
+    Toggle,
+    Unknown,
+}
+
 /// NOTE:
 /// For now, sapphire does not support multiple monitors and due to rust's
 /// lifetimes and how xcb::Screen needs conn, it's really hard to use screen

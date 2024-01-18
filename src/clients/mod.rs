@@ -4,11 +4,11 @@ pub mod client_type;
 
 use xcb_util::ewmh;
 
-use crate::clients::{
+use crate::{clients::{
     client_action::ClientAction,
     client_state::ClientState,
     client_type::ClientType,
-};
+}, util::Operation};
 
 pub type WindowID = u32;
 
@@ -211,6 +211,23 @@ impl Client {
             32,
             new_net_wm_state.as_slice(),
         );
+    }
+
+    pub fn set_state(&mut self, conn: &ewmh::Connection, state: ClientState, operation: Operation) -> Result<(), String> {
+        match operation {
+            Operation::Add => self.add_state(conn, state),
+            Operation::Remove => self.remove_state(conn, state),
+            Operation::Toggle => {
+                if self.has_state(&state) {
+                    self.remove_state(conn, state)
+                } else {
+                    self.add_state(conn, state)
+                }
+            },
+            Operation::Unknown => return Err("Unknown operation".to_owned()),
+        }
+
+        Ok(())
     }
 
     /// Gets the type of the client.

@@ -9,11 +9,8 @@ use crate::{
         client_state::ClientState,
         client_type::ClientType,
     },
-    mouse::{
-        Mouse,
-        MouseEvent
-    },
-    util,
+    mouse::Mouse,
+    util::{self, Operation},
     event_context::EventContext,
     config::Config,
     action::{
@@ -266,24 +263,26 @@ impl WindowManager {
         if event.type_() == self.conn.WM_STATE() {
             // SEE:
             // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
-            // let data = event.data().data32();
-            //
-            // let action = match data[0] {
-            //     ewmh::STATE_ADD => Operation::Add,
-            //     ewmh::STATE_REMOVE => Operation::Remove,
-            //     ewmh::STATE_TOGGLE => Operation::Toggle,
-            //     _ => Operation::Unknown,
-            // };
-            // let property = data[1];
+            let data = event.data().data32();
 
-            // {
-            //     let mut clients = self.clients.lock().unwrap();
-            //     if property == self.conn.WM_STATE_FULLSCREEN() {
-            //         _ = clients
-            //             .set_fullscreen(event.window(), action)
-            //             .map_err(|e| util::notify_error(e));
-            //     }
-            // };
+            let state = data[1];
+            let operation = match data[0] {
+                ewmh::STATE_ADD => Operation::Add,
+                ewmh::STATE_REMOVE => Operation::Remove,
+                ewmh::STATE_TOGGLE => Operation::Toggle,
+                _ => Operation::Unknown,
+            };
+
+            let mut manager = self.manager.lock().unwrap();
+
+            if let Some(t) = manager.get_tag_mut(0) {
+                if let Some(c) = t.get_mut(event.window()) {
+                    if state == self.conn.WM_STATE_FULLSCREEN() {
+                        _ = c.set_state(&self.conn, ClientState::Fullscreen, operation);
+                        manager.update_tag(0);
+                    }
+                }
+            }
         }
 
         self.conn.flush();
@@ -345,8 +344,6 @@ impl WindowManager {
     }
 
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
-        println!("wid {}", event.window());
-
         let wid = event.window();
 
         // TODO: early return when the wm already manages the window
