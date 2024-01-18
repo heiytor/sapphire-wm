@@ -1,8 +1,6 @@
-## Testing and Debugging
-
-To test Sapphire, you will need the following dependencies:
-
-- Xephyr
-- xinit
-
-You can execute the script located at `bin/preview.sh` to initiate the test.
+<div align="center">
+	<h1>SapphireWM</h1>
+	<p>
+		<strong>A minimal, lightweight, and extendable tile window manager written in Rust</strong>
+	</p>
+</div>
