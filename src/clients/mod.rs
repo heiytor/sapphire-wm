@@ -250,4 +250,17 @@ impl Client {
     pub fn kill(&self, conn: &ewmh::Connection) {
         xcb::destroy_window(conn, self.wid);
     }
+
+    /// TODO: rename it!
+    pub fn enable_event_mask(&self, conn: &ewmh::Connection) {
+        xcb::change_window_attributes(
+            conn,
+            self.wid,
+            &[(
+                xcb::CW_EVENT_MASK,
+                xcb::EVENT_MASK_PROPERTY_CHANGE
+                | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
+            )],
+        );
+    }
 }

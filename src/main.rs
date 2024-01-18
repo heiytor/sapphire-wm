@@ -7,6 +7,8 @@ mod window_manager;
 mod tag;
 mod util;
 
+use mouse::MouseEvent;
+
 use crate::{
     action::{
         on_startup::OnStartup,
@@ -45,7 +47,23 @@ fn main() {
     ];
 
     let mut wm = WindowManager::new(config);
-    wm.mouse.disable_sloppy_focus();
+
+    _ = wm.mouse.listen_event(MouseEvent::Click);
+    // TODO: maybe put the handle logic here?
+    // wm.mouse.on(MouseEvent::Click, |ctx: EventContext| {
+    //     let mut manager = ctx.manager.lock().unwrap();
+    //
+    //     if let Some(t) = manager.get_tag_mut(0) {
+    //         if event.child() == t.focused_wid {
+    //             return // The event was pressed on the same window
+    //         }
+    //
+    //         if let Some(c) = t.get(event.child()) {
+    //             t.set_focused_if(&self.conn, c.wid, |c| c.is_controlled());
+    //             manager.update_tag(0); // we only need to update the borders
+    //         }
+    //     }
+    // });
 
     wm.on_startup(&[
         // OnStartup::new(OnStartup::spawn("picom")), // not working

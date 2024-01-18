@@ -9,7 +9,10 @@ use crate::{
         client_state::ClientState,
         client_type::ClientType,
     },
-    mouse::Mouse,
+    mouse::{
+        Mouse,
+        MouseEvent
+    },
     util,
     event_context::EventContext,
     config::Config,
@@ -166,7 +169,6 @@ impl WindowManager {
                         false,
                         screen.root(),
                         // Obtain the combined mask for modkey.
-                        // action.modkey.iter().fold(0, |acc, &val| acc | val), 
                         action.modifier(),
                         keycode,
                         xcb::GRAB_MODE_ASYNC as u8,
@@ -208,6 +210,8 @@ impl WindowManager {
 
 impl WindowManager {
     pub(self) fn handle(&self, event: xcb::GenericEvent) {
+        // println!["event_type {}", event.response_type() & !0x80];
+
         match event.response_type() & !0x80 {
             xcb::CLIENT_MESSAGE => {
                 let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
@@ -242,8 +246,18 @@ impl WindowManager {
                     None => {},
                 };
             },
+            xcb::BUTTON_PRESS => {
+                let event: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(&event) };
+
+                // We need to free the mouse after retrie the event info.
+                // See: https://www.x.org/releases/current/doc/man/man3/xcb_allow_events.3.xhtml
+                xcb::allow_events(&self.conn, xcb::ALLOW_REPLAY_POINTER as u8, event.time());
+                self.conn.flush();
+
+                self.on_button_press(event);
+            },
             _ => {
-                println!("unexpected event")
+                // println!["unexpected event"];
             },
         }
     }
@@ -331,6 +345,8 @@ impl WindowManager {
     }
 
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
+        println!("wid {}", event.window());
+
         let wid = event.window();
 
         // TODO: early return when the wm already manages the window
@@ -377,6 +393,7 @@ impl WindowManager {
                     ClientAction::Move,
                 ],
             );
+            client.enable_event_mask(&self.conn);
         }
 
         let mut manager = self.manager.lock().unwrap();
@@ -389,5 +406,20 @@ impl WindowManager {
         manager.refresh();
 
         self.conn.flush();
+    }
+
+    pub fn on_button_press(&self, event: &xcb::ButtonPressEvent) {
+        let mut manager = self.manager.lock().unwrap();
+
+        if let Some(t) = manager.get_tag_mut(0) {
+            if event.child() == t.focused_wid {
+                return // The event was pressed on the same window
+            }
+
+            if let Some(c) = t.get(event.child()) {
+                t.set_focused_if(&self.conn, c.wid, |c| c.is_controlled());
+                manager.update_tag(0); // we only need to update the borders
+            }
+        }
     }
 }

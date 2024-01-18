@@ -26,7 +26,7 @@ pub struct Tag {
     alias: String,
 
     /// 0 when no client is focused
-    focused_wid: WindowID,
+    pub focused_wid: WindowID,
 
     pub clients: VecDeque<Client>,
 }
