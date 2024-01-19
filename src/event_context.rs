@@ -4,17 +4,10 @@ use xcb_util::ewmh;
 
 use crate::tag::Manager;
 
-
 pub struct EventContext {
     pub conn: Arc<ewmh::Connection>,
     pub manager: Arc<Mutex<Manager>>,
     pub curr_tag: u32,
-}
-
-impl EventContext {
-    // pub fn new(conn: Arc<ewmh::Connection>, screen: i32, clients: Arc<Mutex<Clients>>) -> Self {
-    //     EventContext { conn, screen, clients }
-    // }
 }
 
 impl EventContext {

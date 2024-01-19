@@ -7,10 +7,6 @@ mod window_manager;
 mod tag;
 mod util;
 
-use mouse::MouseEvent;
-use tag::TagErr;
-use util::Operation;
-
 use crate::{
     action::{
         on_startup::OnStartup,
@@ -22,21 +18,20 @@ use crate::{
     },
     config::Config,
     event_context::EventContext,
-    util::modkeys,
+    mouse::MouseEvent,
+    util::{
+        modkeys,
+        Operation,
+    },
     window_manager::WindowManager,
-    tag::Dir,
+    tag::{
+        Dir,
+        error::TagErr,
+    },
 };
 
 fn main() {
-    let mut config = Config::default();
-
-    config.border.size = 2;
-    config.border.active_color = 0xff00f7;
-    config.border.inactive_color = 0xfff200;
-
-    config.gap_size = 6;
-
-    config.virtual_desktops = vec![
+    let tags = vec![
         String::from("1"),
         String::from("2"),
         String::from("3"),
@@ -47,6 +42,16 @@ fn main() {
         String::from("8"),
         String::from("9"),
     ];
+
+    let mut config = Config::default();
+
+    config.border.size = 2;
+    config.border.active_color = 0xff00f7;
+    config.border.inactive_color = 0xfff200;
+
+    config.gap_size = 6;
+
+    config.tags = tags.clone();
 
     let mut wm = WindowManager::new(config);
 
@@ -173,14 +178,14 @@ fn main() {
 
     
     // Bind MODKEY + i to desktop[i].
-    for i in 1..10 {
+    for i in 0..tags.len() as u32 {
         let func = Box::new(move |ctx: EventContext| -> Result<(), String> {
             let mut manager = ctx.manager.lock().unwrap();
-            manager.focus_tag(i-1)
+            manager.focus_tag(i)
         });
 
-        let i = i.to_string();
-        on_keypress_actions.push(OnKeypress::new(&[modkey], &i, func));
+        let key = (i+1).to_string();
+        on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), func));
     }
 
     wm.on_keypress(on_keypress_actions.as_slice());

@@ -1,7 +1,7 @@
 pub struct Config {
     pub gap_size: u32,
     pub border: Border,
-    pub virtual_desktops: Vec<String>
+    pub tags: Vec<String>
 }
 
 impl Default for Config {
@@ -13,7 +13,7 @@ impl Default for Config {
                 active_color: 0x000000,
                 inactive_color: 0x000000,
             },
-            virtual_desktops:     vec![
+            tags: vec![
                 String::from("1"),
                 String::from("2"),
                 String::from("3"),

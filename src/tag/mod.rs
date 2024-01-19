@@ -1,3 +1,5 @@
+pub mod error;
+
 use std::{sync::Arc, collections::VecDeque};
 
 use xcb_util::ewmh;
@@ -10,6 +12,7 @@ use crate::{
         ClientID,
         client_state::ClientState,
     },
+    tag::error::TagErr,
 };
 
 pub enum Dir {
@@ -18,18 +21,6 @@ pub enum Dir {
 }
 
 pub type TagID = u32;
-
-pub enum TagErr {
-    NotFound(TagID)
-}
-
-impl ToString for TagErr {
-    fn to_string(&self) -> String {
-        match self {
-            TagErr::NotFound(id) => format!["Tag[{}] not found.", id],
-        }
-    }
-}
 
 pub struct Tag {
     id: TagID,
@@ -61,6 +52,10 @@ impl Tag {
 impl Tag {
     pub fn get_id(&self) -> &TagID {
         &self.id
+    }
+
+    pub fn get_alias(&self) -> &str {
+        self.alias.as_str()
     }
 
     pub fn contains(&self, wid: ClientID) -> bool {

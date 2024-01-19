@@ -4,10 +4,13 @@ pub mod client_type;
 
 use xcb_util::ewmh;
 
-use crate::clients::{
-    client_action::ClientAction,
-    client_state::ClientState,
-    client_type::ClientType,
+use crate::{
+    clients::{
+        client_action::ClientAction,
+        client_state::ClientState,
+        client_type::ClientType,
+    },
+    tag::TagID,
 };
 
 /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
@@ -20,8 +23,11 @@ pub struct Client {
     /// `event.event()` in XCB events.
     pub wid: ClientID,
 
-    /// The proccess ID of the client.
-    pub pid: u32,
+    /// The `_NET_WM_PID` of the client, also known as the process ID.
+    pub wm_pid: Option<u32>,
+
+    /// The `WM_CLASS` of the client.
+    pub wm_class: Option<String>,
 
     is_controlled: bool,
     is_visible: bool,
@@ -55,7 +61,7 @@ pub struct Client {
     pub padding_left: u32,
     pub padding_right: u32,
 
-    pub tag: u32,
+    tag_id: TagID,
     pub screen: u32,
     pub is_focused: bool,
 }
@@ -63,7 +69,6 @@ pub struct Client {
 impl Default for Client {
     fn default() -> Self {
         Client { 
-            pid: 0,
             wid: 0,
             is_controlled: false,
             padding_top: 0,
@@ -72,11 +77,14 @@ impl Default for Client {
             padding_right: 0,
             is_visible: false,
             r#type: ClientType::Normal,
-            tag: 0,
+            tag_id: 0,
             screen: 0,
             is_focused: false,
             states: vec![],
             allowed_actions: vec![],
+
+            wm_class: None,
+            wm_pid: None,
         }
     }
 }
@@ -85,7 +93,6 @@ impl Client {
     pub fn new(wid: ClientID) -> Self {
         Client { 
             wid,
-            pid: 0,
             is_controlled: true,
             padding_top: 0,
             padding_bottom: 0,
@@ -93,11 +100,14 @@ impl Client {
             padding_right: 0,
             is_visible: true,
             r#type: ClientType::Normal,
-            tag: 0,
+            tag_id: 0,
             screen: 0,
             is_focused: false,
             states: vec![],
             allowed_actions: vec![],
+
+            wm_class: None,
+            wm_pid: None,
         }
     }
 
@@ -164,5 +174,10 @@ impl Client {
                 | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
             )],
         );
+    }
+
+    pub fn set_tag(&mut self, conn: &ewmh::Connection, id: TagID) {
+        ewmh::set_wm_desktop(conn, self.wid, id);
+        self.tag_id = id;
     }
 }

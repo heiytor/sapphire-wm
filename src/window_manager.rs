@@ -118,15 +118,15 @@ impl WindowManager {
         let conn = Arc::new(conn);
         let config = Arc::new(config);
 
-        ewmh::set_number_of_desktops(&conn, 0, config.virtual_desktops.len() as u32);
-        ewmh::set_current_desktop(&conn, 0, 0);
-        ewmh::set_desktop_names(&conn, 0, config.virtual_desktops.iter().map(|d| d.as_ref()));
-
         let mut tags: Vec<Tag> = vec![];
-        for (id, alias) in config.virtual_desktops.iter().enumerate() {
+        for (id, alias) in config.tags.iter().enumerate() {
             let tag = Tag::new(id as u32, alias, conn.clone());
             tags.push(tag);
         }
+
+        ewmh::set_number_of_desktops(&conn, 0, tags.len() as u32);
+        ewmh::set_current_desktop(&conn, 0, 0);
+        ewmh::set_desktop_names(&conn, 0, tags.iter().map(|d| d.get_alias().as_ref()));
 
         let manager = Manager::new(conn.clone(), tags, config.clone());
 
@@ -331,92 +331,71 @@ impl WindowManager {
         let curr_tag = manager.focused_tag_id;
         let tag = manager.get_tag_mut(curr_tag).unwrap();
 
-        let wid = match tag.get(event.window()) {
-            Some(c) => c.wid,
+        let client = match tag.get(event.window()) {
+            Some(c) => c.clone(), // TODO: is that clone really necessary?
             None => return,
         };
 
-        tag.unmanage(wid);
-        std::process::Command::new("kill").args(&["-9", &wid.to_string()]).output().unwrap();
+        tag.unmanage(client.wid);
+        // TODO: destroy the window without PID. the PID must be the last thing that the WM uses to
+        // destroy an window.
+        if let Some(pid) = client.wm_pid {
+            std::process::Command::new("kill").args(&["-9", &pid.to_string()]).output().unwrap();
 
-        // Focus the master (first) client if any.
-        if let Some(c) = tag.get_first_when(|c| c.is_controlled()) {
-            _ = tag.set_focused(c.wid);
+            // Focus the master (first) client if any.
+            if let Some(c) = tag.get_first_when(|c| c.is_controlled()) {
+                _ = tag.set_focused(c.wid);
+            }
+
+            _ = manager.draw_clients_from(&[curr_tag]);
+            manager.refresh();
         }
-        
-        _ = manager.draw_clients_from(&[curr_tag]);
-        manager.refresh();
 
         self.conn.flush();
     }
 
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
-        let wid = event.window();
+        xcb::map_window(&self.conn, event.window());
 
         let mut manager = self.manager.lock().unwrap();
-
         let curr_tag = manager.focused_tag_id;
-        let tag = manager.get_tag_mut(curr_tag).unwrap();
 
-        xcb::map_window(&self.conn, wid);
+        let mut r#type = ClientType::Normal;
+        if util::window_has_type(&self.conn, event.window(), self.conn.WM_WINDOW_TYPE_DOCK()) {
+            r#type = ClientType::Dock;
+        }
 
-        if tag.contains(wid) {
+        // The target_tag represents on which tag we should manage the client.
+        // Generally, the sticky tag is reserved for storing clients that must be kept on the
+        // screen independently of the current tag.
+        let target_tag = match r#type {
+            ClientType::Dock => manager.sticky_tag_mut(),
+            _ => manager.get_tag_mut(curr_tag).unwrap(), // TODO: remove this unwrap
+        };
+
+        if target_tag.contains(event.window()) {
             return
         }
 
-        let mut client = Client::new(wid);
+        let mut client = Client::new(event.window());
         client.allow_action(&self.conn, ClientAction::Close);
+        client.set_type(&self.conn, r#type, curr_tag);
 
-        if let Ok(tag) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
-            client.tag = tag;
+        // Retrieve some informations about the client
+        if let Ok(pid) = ewmh::get_wm_pid(&self.conn, event.window()).get_reply() {
+            client.wm_pid = Some(pid);
         }
 
-
-        if let Ok(pid) = ewmh::get_wm_pid(&self.conn, wid).get_reply() {
-            client.pid = pid;
+        if let Ok(name) = ewmh::get_wm_name(&self.conn, event.window()).get_reply() {
+            client.wm_class = Some(name.string().to_owned());
         }
 
-        if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, wid).get_reply() {
+        if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
             client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
         };
 
-        // TODO: get min and max sizes
-        // if let Ok(hints) = icccm::get_wm_size_hints(&self.conn, wid, xcb::ATOM_WM_NORMAL_HINTS).get_reply() {
-        //     if let Some(min) = hints.min_size() {
-        //         println!("min {} {}", min.0, min.1);
-        //     }
-        //
-        //     if let Some(max) = hints.max_size() {
-        //         println!("max {} {}", max.0, max.1);
-        //     }
-        // }
-
-        if util::window_has_type(&self.conn, wid, self.conn.WM_WINDOW_TYPE_DOCK()) {
-            client.set_type(ClientType::Dock);
-            client.add_state(&self.conn, ClientState::Sticky);
-
-            manager.sticky_tag_mut().manage(client);
-            ewmh::set_wm_desktop(&self.conn, wid, 0xFFFFFF);
-
-            return
-        }
-
-        client.allow_actions(
-            &self.conn,
-            vec![
-            ClientAction::Maximize,
-            ClientAction::Fullscreen,
-            ClientAction::ChangeTag,
-            ClientAction::Resize,
-            ClientAction::Move,
-            ],
-        );
-
-        client.enable_event_mask(&self.conn);
-        ewmh::set_wm_desktop(&self.conn, wid, curr_tag);
-
-        tag.manage(client);
-        tag.set_focused_if(wid, |c| c.is_controlled());
+        target_tag.manage(client);
+        target_tag.set_focused_if(event.window(), |c| c.is_controlled());
 
         _ = manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
