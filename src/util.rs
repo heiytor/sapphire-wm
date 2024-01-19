@@ -30,6 +30,17 @@ pub fn get_screen(conn: &xcb::Connection) -> xcb::Screen {
     conn.get_setup().roots().next().unwrap()
 }
 
+#[inline]
+pub fn disable_input_focus(conn: &xcb::Connection) {
+    xcb::set_input_focus(
+        conn,
+        xcb::INPUT_FOCUS_PARENT as u8,
+        // The input focus needs to be the root window to avoid keyboard blocks.
+        xcb::INPUT_FOCUS_POINTER_ROOT,
+        xcb::CURRENT_TIME,
+    );
+}
+
 pub fn notify_error(e: String) {
     println!("WM error: {}", e);
 }

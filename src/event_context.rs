@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::tag::Manager;
+use crate::tag::{Manager, Tag};
 
 
 pub struct EventContext {

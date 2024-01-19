@@ -115,22 +115,22 @@ impl WindowManager {
         ewmh::set_supporting_wm_check(&conn, screen.root(), window);
         ewmh::set_wm_name(&conn, window, "sapphire");
 
+        let conn = Arc::new(conn);
+        let config = Arc::new(config);
+
         ewmh::set_number_of_desktops(&conn, 0, config.virtual_desktops.len() as u32);
         ewmh::set_current_desktop(&conn, 0, 0);
         ewmh::set_desktop_names(&conn, 0, config.virtual_desktops.iter().map(|d| d.as_ref()));
 
         let mut tags: Vec<Tag> = vec![];
-        for (i, t) in config.virtual_desktops.iter().enumerate() {
-            let tag = Tag::new(i as u32, t);
+        for (id, alias) in config.virtual_desktops.iter().enumerate() {
+            let tag = Tag::new(id as u32, alias, conn.clone());
             tags.push(tag);
         }
 
-        conn.flush();
-
-        let conn = Arc::new(conn);
-        let config = Arc::new(config);
-
         let manager = Manager::new(conn.clone(), tags, config.clone());
+
+        conn.flush();
 
         WindowManager {
             startup_actions: Vec::new(),
@@ -231,10 +231,14 @@ impl WindowManager {
 
                 match self.keypress_actions.get(&event.detail()) {
                     Some(action) => {
+                        let curr_tag = {
+                            self.manager.lock().unwrap().focused_tag_id
+                        };
+
                         let ctx = EventContext {
                             conn: self.conn.clone(),
                             manager: self.manager.clone(),
-                            curr_tag: 0,
+                            curr_tag,
                         };
 
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
@@ -275,11 +279,12 @@ impl WindowManager {
 
             let mut manager = self.manager.lock().unwrap();
 
-            if let Some(t) = manager.get_tag_mut(0) {
+            let curr_tag = manager.focused_tag_id;
+            if let Some(t) = manager.get_tag_mut(curr_tag) {
                 if let Some(c) = t.get_mut(event.window()) {
                     if state == self.conn.WM_STATE_FULLSCREEN() {
                         _ = c.set_state(&self.conn, ClientState::Fullscreen, operation);
-                        manager.update_tag(0);
+                        manager.draw_clients_from(&[curr_tag]);
                     }
                 }
             }
@@ -322,7 +327,9 @@ impl WindowManager {
 
     pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
         let mut manager = self.manager.lock().unwrap();
-        let tag = manager.get_tag_mut(0).unwrap();
+
+        let curr_tag = manager.focused_tag_id;
+        let tag = manager.get_tag_mut(curr_tag).unwrap();
 
         let wid = match tag.get(event.window()) {
             Some(c) => c.wid,
@@ -334,10 +341,10 @@ impl WindowManager {
 
         // Focus the master (first) client if any.
         if let Some(c) = tag.get_first_when(|c| c.is_controlled()) {
-            _ = tag.set_focused(&self.conn, c.wid);
+            _ = tag.set_focused(c.wid);
         }
         
-        manager.update_tag(0);
+        manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
 
         self.conn.flush();
@@ -346,9 +353,16 @@ impl WindowManager {
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
         let wid = event.window();
 
-        // TODO: early return when the wm already manages the window
+        let mut manager = self.manager.lock().unwrap();
+
+        let curr_tag = manager.focused_tag_id;
+        let tag = manager.get_tag_mut(curr_tag).unwrap();
 
         xcb::map_window(&self.conn, wid);
+
+        if tag.contains(wid) {
+            return
+        }
 
         let mut client = Client::new(wid);
         client.allow_action(&self.conn, ClientAction::Close);
@@ -356,6 +370,7 @@ impl WindowManager {
         if let Ok(tag) = ewmh::get_current_desktop(&self.conn, 0).get_reply() {
             client.tag = tag;
         }
+
 
         if let Ok(pid) = ewmh::get_wm_pid(&self.conn, wid).get_reply() {
             client.pid = pid;
@@ -379,27 +394,31 @@ impl WindowManager {
         if util::window_has_type(&self.conn, wid, self.conn.WM_WINDOW_TYPE_DOCK()) {
             client.set_type(ClientType::Dock);
             client.add_state(&self.conn, ClientState::Sticky);
-        } else {
-            client.allow_actions(
-                &self.conn,
-                vec![
-                    ClientAction::Maximize,
-                    ClientAction::Fullscreen,
-                    ClientAction::ChangeTag,
-                    ClientAction::Resize,
-                    ClientAction::Move,
-                ],
-            );
-            client.enable_event_mask(&self.conn);
+
+            manager.sticky_tag_mut().manage(client);
+            ewmh::set_wm_desktop(&self.conn, wid, 0xFFFFFF);
+
+            return
         }
 
-        let mut manager = self.manager.lock().unwrap();
+        client.allow_actions(
+            &self.conn,
+            vec![
+            ClientAction::Maximize,
+            ClientAction::Fullscreen,
+            ClientAction::ChangeTag,
+            ClientAction::Resize,
+            ClientAction::Move,
+            ],
+        );
 
-        let tag = manager.get_tag_mut(0).unwrap();
+        client.enable_event_mask(&self.conn);
+        ewmh::set_wm_desktop(&self.conn, wid, curr_tag);
+
         tag.manage(client);
-        _ = tag.set_focused_if(&self.conn, wid, |c| c.is_controlled());
+        tag.set_focused_if(wid, |c| c.is_controlled());
 
-        manager.update_tag(0);
+        manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
 
         self.conn.flush();
@@ -408,14 +427,15 @@ impl WindowManager {
     pub fn on_button_press(&self, event: &xcb::ButtonPressEvent) {
         let mut manager = self.manager.lock().unwrap();
 
-        if let Some(t) = manager.get_tag_mut(0) {
+        let curr_tag = manager.focused_tag_id;
+        if let Some(t) = manager.get_tag_mut(curr_tag) {
             if event.child() == t.focused_wid {
                 return // The event was pressed on the same window
             }
 
             if let Some(c) = t.get(event.child()) {
-                t.set_focused_if(&self.conn, c.wid, |c| c.is_controlled());
-                manager.update_tag(0); // we only need to update the borders
+                t.set_focused_if(c.wid, |c| c.is_controlled());
+                manager.draw_clients_from(&[curr_tag]); // we only need to update the borders
             }
         }
     }
