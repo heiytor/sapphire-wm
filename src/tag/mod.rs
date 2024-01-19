@@ -153,7 +153,7 @@ impl Tag {
                 .iter()
                 .find(|c| c.wid == self.focused_wid)
                 .map(|c| c.set_border(&self.conn, 0xFFF200));
-
+            
             self.focused_wid = c.wid;
             c.set_input_focus(&self.conn);
             c.set_border(&self.conn, 0xC800FF);
@@ -341,11 +341,11 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
             &conn,
             client.wid,
             &[
-            (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-            (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
-            (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
-            (xcb::CONFIG_WINDOW_X as u16, 0),
-            (xcb::CONFIG_WINDOW_Y as u16, 0),
+                (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
+                (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
+                (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
+                (xcb::CONFIG_WINDOW_X as u16, 0),
+                (xcb::CONFIG_WINDOW_Y as u16, 0),
             ],
         );
     }

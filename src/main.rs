@@ -7,6 +7,8 @@ mod window_manager;
 mod tag;
 mod util;
 
+use mouse::MouseInfo;
+
 use crate::{
     action::{
         on_startup::OnStartup,
@@ -37,7 +39,7 @@ fn main() {
         String::from("3"),
         String::from("4"),
         String::from("5"),
-        String::from("6"),
+        String::from("a"),
         String::from("7"),
         String::from("8"),
         String::from("9"),
@@ -48,29 +50,24 @@ fn main() {
     config.border.size = 2;
     config.border.active_color = 0xff00f7;
     config.border.inactive_color = 0xfff200;
-
     config.gap_size = 6;
-
     config.tags = tags.clone();
 
     let mut wm = WindowManager::new(config);
 
-    _ = wm.mouse.listen_event(MouseEvent::Click);
-    // TODO: maybe put the handle logic here?
-    // wm.mouse.on(MouseEvent::Click, |ctx: EventContext| {
-    //     let mut manager = ctx.manager.lock().unwrap();
-    //
-    //     if let Some(t) = manager.get_tag_mut(0) {
-    //         if event.child() == t.focused_wid {
-    //             return // The event was pressed on the same window
-    //         }
-    //
-    //         if let Some(c) = t.get(event.child()) {
-    //             t.set_focused_if(&self.conn, c.wid, |c| c.is_controlled());
-    //             manager.update_tag(0); // we only need to update the borders
-    //         }
-    //     }
-    // });
+    // Allows focus on click.
+    wm.mouse.on(MouseEvent::Click, Box::new(|ctx: EventContext, info: MouseInfo| -> Result<(), String> {
+        let mut man = ctx.manager.lock().unwrap();
+
+        man.get_tag_mut(ctx.curr_tag_id()).
+            map(|t| {
+                if t.focused_wid != info.c_id {
+                    t.set_focused_if(info.c_id, |c| c.is_controlled());
+                }
+            });
+
+        Ok(())
+    }));
 
     wm.on_startup(&[
         // OnStartup::new(OnStartup::spawn("picom")), // not working
@@ -92,11 +89,15 @@ fn main() {
             ctx.spawn("google-chrome-stable")
         })),
 
+        OnKeypress::new(&[modkey], "Tab",  Box::new(|ctx: EventContext| {
+            ctx.spawn("rofi -show drun")
+        })),
+
         // Kill the focused client on the current tag.
         OnKeypress::new(&[modkey], "End", Box::new(|ctx: EventContext| {
             let manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag(ctx.curr_tag_id()).ok_or_else(|| "Tag not found")?;
             tag.get_focused().map(|c| c.kill(&ctx.conn));
 
             Ok(())
@@ -106,7 +107,7 @@ fn main() {
         OnKeypress::new(&[modkey], "h", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag_mut(ctx.curr_tag_id()).ok_or_else(|| "Tag not found")?;
 
             _ = tag.walk(1, Dir::Left, |c| c.is_controlled())
                 .map(|wid| tag.set_focused(wid));
@@ -118,7 +119,7 @@ fn main() {
         OnKeypress::new(&[modkey], "l", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag_mut(ctx.curr_tag_id()).ok_or_else(|| "Tag not found")?;
 
             _ = tag.walk(1, Dir::Right, |c| c.is_controlled())
                 .map(|wid| tag.set_focused(wid));
@@ -130,13 +131,13 @@ fn main() {
         OnKeypress::new(&[modkey], "Return", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
+            let tag = manager.get_tag_mut(ctx.curr_tag_id()).ok_or_else(|| TagErr::NotFound(ctx.curr_tag_id()).to_string())?;
 
             if let (Some(c1), Some(c2)) = (tag.get_focused(), tag.get_first_when(|c| c.is_controlled())) {
                 _ = tag.swap(c1.wid, c2.wid);
             }
 
-            _ = manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
 
             Ok(())
         })),
@@ -145,7 +146,7 @@ fn main() {
         OnKeypress::new(&[modkey], "f", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
+            let tag = manager.get_tag_mut(ctx.curr_tag_id()).ok_or_else(|| TagErr::NotFound(ctx.curr_tag_id()).to_string())?;
             let client = tag.get_focused_mut().ok_or_else(|| "Client not found")?;
 
             if !client.allows_action(&ClientAction::Fullscreen) {
@@ -153,7 +154,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-            _ = manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
 
             Ok(())
         })),
@@ -162,7 +163,7 @@ fn main() {
         OnKeypress::new(&[modkey], "m", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
+            let tag = manager.get_tag_mut(ctx.curr_tag_id()).ok_or_else(|| TagErr::NotFound(ctx.curr_tag_id()).to_string())?;
             let client = tag.get_focused_mut().ok_or_else(|| "Client not found")?;
 
             if !client.allows_action(&ClientAction::Maximize) {
@@ -170,7 +171,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-            _ = manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
 
             Ok(())
         })),
@@ -178,14 +179,18 @@ fn main() {
 
     
     // Bind MODKEY + i to desktop[i].
-    for i in 0..tags.len() as u32 {
-        let func = Box::new(move |ctx: EventContext| -> Result<(), String> {
-            let mut manager = ctx.manager.lock().unwrap();
-            manager.focus_tag(i)
-        });
+    for id in 0..tags.len() as u32 {
+        let key = (id+1).to_string();
+        on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), Box::new(move |ctx: EventContext| {
+            let mut man = ctx.manager.lock().unwrap();
+            man.focus_tag(id)
+        })));
 
-        let key = (i+1).to_string();
-        on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), func));
+        on_keypress_actions.push(OnKeypress::new(&[modkey, modkeys::MODKEY_CONTROL], key.as_str(), Box::new(move |ctx: EventContext| {
+            // let mut man = ctx.manager.lock().unwrap();
+            // man.move_client(t.focused_client, ctx.curr_tag_id(), id);
+            Ok(())
+        })));
     }
 
     wm.on_keypress(on_keypress_actions.as_slice());

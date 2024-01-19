@@ -9,7 +9,11 @@ use crate::{
         client_state::ClientState,
         client_type::ClientType,
     },
-    mouse::Mouse,
+    mouse::{
+        Mouse,
+        MouseInfo,
+        MouseEvent,
+    },
     util::{self, Operation},
     event_context::EventContext,
     config::Config,
@@ -26,15 +30,11 @@ use crate::{
 
 pub struct WindowManager {
     pub conn: Arc<ewmh::Connection>,
-
     pub mouse: Mouse,
+    pub config: Arc<Config>,
 
-    config: Arc<Config>,
     startup_actions: Vec<OnStartup>,
     keypress_actions: HashMap<u8, OnKeypress>,
-
-
-    // WORK IN PROGRESS
     manager: Arc<Mutex<Manager>>,
 }
 
@@ -207,8 +207,9 @@ impl WindowManager {
 
 impl WindowManager {
     pub(self) fn handle(&self, event: xcb::GenericEvent) {
-        // println!["event_type {}", event.response_type() & !0x80];
+        println!["event_type {}", event.response_type() & !0x80];
 
+        // TODO: every event need to receive an EventContext
         match event.response_type() & !0x80 {
             xcb::CLIENT_MESSAGE => {
                 let event: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
@@ -231,39 +232,61 @@ impl WindowManager {
 
                 match self.keypress_actions.get(&event.detail()) {
                     Some(action) => {
-                        let curr_tag = {
-                            self.manager.lock().unwrap().focused_tag_id
-                        };
-
-                        let ctx = EventContext {
-                            conn: self.conn.clone(),
-                            manager: self.manager.clone(),
-                            curr_tag,
-                        };
+                        let ctx = EventContext::new(self.conn.clone(), self.manager.clone());
 
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
-                        self.conn.flush();
                     },
                     None => {},
                 };
             },
             xcb::BUTTON_PRESS => {
-                let event: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(&event) };
+                let e: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(&event) };
 
                 // We need to free the mouse after retrie the event info.
                 // See: https://www.x.org/releases/current/doc/man/man3/xcb_allow_events.3.xhtml
-                xcb::allow_events(&self.conn, xcb::ALLOW_REPLAY_POINTER as u8, event.time());
+                xcb::allow_events(&self.conn, xcb::ALLOW_REPLAY_POINTER as u8, e.time());
                 self.conn.flush();
 
-                self.on_button_press(event);
+                let inf = MouseInfo::new(e.child(), e.state(), (e.event_x(), e.event_y()));
+                let ctx = EventContext::new(self.conn.clone(), self.manager.clone());
+
+                _ = self.mouse.trigger_with(MouseEvent::Click, ctx, inf).map_err(|e| util::notify_error(e));
             },
             _ => {
                 // println!["unexpected event"];
             },
-        }
+        };
+
+        self.conn.flush();
     }
 
     pub(self) fn on_client_message(&self, event: &xcb::ClientMessageEvent) {
+        println!("client_message. atom: {}", event.type_());
+
+        if event.type_() == self.conn.CLOSE_WINDOW() {
+            println!("CLOSE!!!!");
+            println!("CLOSE!!!!");
+            println!("CLOSE!!!!");
+            println!("CLOSE!!!!");
+            println!("CLOSE!!!!");
+        }
+
+        if event.type_() == self.conn.WM_PING() {
+            println!("ping");
+            println!("ping");
+            println!("ping");
+            println!("ping");
+            println!("ping");
+        }
+
+        if event.type_() == self.conn.WM_DESKTOP() {
+            println!("desktop!!");
+            println!("desktop!!");
+            println!("desktop!!");
+            println!("desktop!!");
+        }
+
+
         if event.type_() == self.conn.WM_STATE() {
             // SEE:
             // > https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672
@@ -289,8 +312,6 @@ impl WindowManager {
                 }
             }
         }
-
-        self.conn.flush();
     }
 
     pub(self) fn on_configure_request(&self, event: &xcb::ConfigureRequestEvent) {
@@ -322,7 +343,6 @@ impl WindowManager {
         }
 
         xcb::configure_window(&self.conn, event.window(), &values);
-        self.conn.flush();
     }
 
     pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
@@ -350,8 +370,6 @@ impl WindowManager {
             _ = manager.draw_clients_from(&[curr_tag]);
             manager.refresh();
         }
-
-        self.conn.flush();
     }
 
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
@@ -364,6 +382,9 @@ impl WindowManager {
         if util::window_has_type(&self.conn, event.window(), self.conn.WM_WINDOW_TYPE_DOCK()) {
             r#type = ClientType::Dock;
         }
+
+        // if let Ok(t) = ewmh::get_wm_window_type(&self.conn, event.window()).get_reply() {
+        // }
 
         // The target_tag represents on which tag we should manage the client.
         // Generally, the sticky tag is reserved for storing clients that must be kept on the
@@ -399,23 +420,5 @@ impl WindowManager {
 
         _ = manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
-
-        self.conn.flush();
-    }
-
-    pub fn on_button_press(&self, event: &xcb::ButtonPressEvent) {
-        let mut manager = self.manager.lock().unwrap();
-
-        let curr_tag = manager.focused_tag_id;
-        if let Some(t) = manager.get_tag_mut(curr_tag) {
-            if event.child() == t.focused_wid {
-                return // The event was pressed on the same window
-            }
-
-            if let Some(c) = t.get(event.child()) {
-                t.set_focused_if(c.wid, |c| c.is_controlled());
-                _ = manager.draw_clients_from(&[curr_tag]); // we only need to update the borders
-            }
-        }
     }
 }
