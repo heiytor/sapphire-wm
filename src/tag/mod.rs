@@ -7,7 +7,7 @@ use crate::{
     config::Config,
     clients::{
         Client,
-        WindowID,
+        ClientID,
         client_state::ClientState,
     },
 };
@@ -41,7 +41,7 @@ pub struct Tag {
     alias: String,
 
     /// 0 when no client is focused
-    pub focused_wid: WindowID,
+    pub focused_wid: ClientID,
 
     clients: VecDeque<Client>,
 }
@@ -63,7 +63,7 @@ impl Tag {
         &self.id
     }
 
-    pub fn contains(&self, wid: WindowID) -> bool {
+    pub fn contains(&self, wid: ClientID) -> bool {
         self.clients.iter().any(|c| c.wid == wid)
     }
 
@@ -75,11 +75,11 @@ impl Tag {
 
     /// Removes a client with the specified window ID from the client list.
     /// Note: It does not update the "_NET_CLIENT_LIST"; use `Manager::refresh()` for that purpose.
-    pub fn unmanage(&mut self, wid: WindowID) {
+    pub fn unmanage(&mut self, wid: ClientID) {
         self.clients.retain(|c| c.wid != wid);
     }
 
-    fn get_idx(&self, wid: WindowID) -> Option<usize> {
+    fn get_idx(&self, wid: ClientID) -> Option<usize> {
         self.clients.iter().position(|c| c.wid == wid)
     }
 
@@ -99,12 +99,12 @@ impl Tag {
     }
 
     /// Retrieves an immutable reference to the client with the specified window ID.
-    pub fn get(&self, wid: WindowID) -> Option<&Client> {
+    pub fn get(&self, wid: ClientID) -> Option<&Client> {
         self.clients.iter().find(|c| c.wid == wid)
     }
     
     /// Retrieves an immutable reference to the client with the specified window ID.
-    pub fn get_mut(&mut self, wid: WindowID) -> Option<&mut Client> {
+    pub fn get_mut(&mut self, wid: ClientID) -> Option<&mut Client> {
         self.clients.iter_mut().find(|c| c.wid == wid)
     }
 
@@ -123,7 +123,7 @@ impl Tag {
     /// border to `inactive_color`.
     ///
     /// Returns `Some(true)` if the focus is set successfully, otherwise `None`.
-    pub fn set_focused(&mut self, wid: WindowID) -> Option<bool> {
+    pub fn set_focused(&mut self, wid: ClientID) -> Option<bool> {
         if let Some(c) = self.clients.iter().find(|c| c.wid == wid) {
             // Sets the border of the previously focused client to an inactive state, if applicable.
             self.clients
@@ -147,7 +147,7 @@ impl Tag {
     ///
     /// Returns `Some(true)` if the focus is set successfully, `Some(false)` if the predicate is not satisfied,
     /// otherwise `None`.
-    pub fn set_focused_if(&mut self, wid: WindowID, predicate: impl Fn(&Client) -> bool) -> Option<bool> {
+    pub fn set_focused_if(&mut self, wid: ClientID, predicate: impl Fn(&Client) -> bool) -> Option<bool> {
         if let Some(c) = self.clients.iter().find(|c| c.wid == wid) {
             if !predicate(c) {
                 return Some(false)
@@ -178,7 +178,7 @@ impl Tag {
     /// 2. When the function has looped through the clients vector but no matching client is found.
     ///
     /// !Note: Currently, the function only supports `n == 1`.
-    pub fn walk(&self, n: usize, dir: Dir, predicate: impl Fn(&Client) -> bool) -> Option<WindowID> {
+    pub fn walk(&self, n: usize, dir: Dir, predicate: impl Fn(&Client) -> bool) -> Option<ClientID> {
         if self.clients.len() == 0 {
             return None;
         }
@@ -230,7 +230,7 @@ impl Tag {
 
     /// Changes the position of the client with window ID `wid_i` with the client with window ID `wid_j`.
     /// Returns `None` if either client does not exist.
-    pub fn swap(&mut self, wid_i: WindowID, wid_j: WindowID) -> Option<()> {
+    pub fn swap(&mut self, wid_i: ClientID, wid_j: ClientID) -> Option<()> {
         match (self.get_idx(wid_i), self.get_idx(wid_j)) {
             (Some(i), Some(j)) => Some(self.clients.swap(i, j)),
             _ => None,

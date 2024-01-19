@@ -10,11 +10,17 @@ use crate::clients::{
     client_type::ClientType,
 };
 
-pub type WindowID = u32;
+/// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
+/// `event.event()` in XCB events.
+pub type ClientID = u32;
 
 #[derive(Clone)]
 pub struct Client {
-    pub wid: WindowID,
+    /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
+    /// `event.event()` in XCB events.
+    pub wid: ClientID,
+
+    /// The proccess ID of the client.
     pub pid: u32,
 
     is_controlled: bool,
@@ -76,7 +82,7 @@ impl Default for Client {
 }
 
 impl Client {
-    pub fn new(wid: WindowID) -> Self {
+    pub fn new(wid: ClientID) -> Self {
         Client { 
             wid,
             pid: 0,
