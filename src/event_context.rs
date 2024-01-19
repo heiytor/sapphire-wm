@@ -2,12 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::tag::{Manager, Tag};
+use crate::tag::Manager;
 
 
 pub struct EventContext {
     pub conn: Arc<ewmh::Connection>,
-
     pub manager: Arc<Mutex<Manager>>,
     pub curr_tag: u32,
 }

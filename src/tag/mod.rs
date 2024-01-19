@@ -169,18 +169,6 @@ impl Tag {
         None
     }
 
-    /// Returns a tuple representing the maximum padding values (top, bottom, left, right)
-    /// among all clients in the client list.
-    #[inline]
-    pub fn paddings(&self) -> (u32, u32, u32, u32) {
-        let top = self.clients.iter().map(|c| c.padding_top).max().unwrap_or(0);
-        let bottom = self.clients.iter().map(|c| c.padding_bottom).max().unwrap_or(0);
-        let left = self.clients.iter().map(|c| c.padding_left).max().unwrap_or(0);
-        let right = self.clients.iter().map(|c| c.padding_right).max().unwrap_or(0);
-
-        (top, bottom, left, right)
-    }
-
     /// Walks `n` clients in the specified direction `dir`, targeting the first client
     /// that matches with the `predicate`. It automatically loops through the clients
     /// vector.

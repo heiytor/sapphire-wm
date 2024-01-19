@@ -8,6 +8,7 @@ mod tag;
 mod util;
 
 use mouse::MouseEvent;
+use tag::TagErr;
 use util::Operation;
 
 use crate::{
@@ -124,13 +125,13 @@ fn main() {
         OnKeypress::new(&[modkey], "Return", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
 
             if let (Some(c1), Some(c2)) = (tag.get_focused(), tag.get_first_when(|c| c.is_controlled())) {
                 _ = tag.swap(c1.wid, c2.wid);
             }
 
-            manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag]);
 
             Ok(())
         })),
@@ -139,7 +140,7 @@ fn main() {
         OnKeypress::new(&[modkey], "f", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
             let client = tag.get_focused_mut().ok_or_else(|| "Client not found")?;
 
             if !client.allows_action(&ClientAction::Fullscreen) {
@@ -147,7 +148,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-            manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag]);
 
             Ok(())
         })),
@@ -156,7 +157,7 @@ fn main() {
         OnKeypress::new(&[modkey], "m", Box::new(|ctx: EventContext| {
             let mut manager = ctx.manager.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| "Tag not found")?;
+            let tag = manager.get_tag_mut(ctx.curr_tag).ok_or_else(|| TagErr::NotFound(ctx.curr_tag).to_string())?;
             let client = tag.get_focused_mut().ok_or_else(|| "Client not found")?;
 
             if !client.allows_action(&ClientAction::Maximize) {
@@ -164,7 +165,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-            manager.draw_clients_from(&[ctx.curr_tag]);
+            _ = manager.draw_clients_from(&[ctx.curr_tag]);
 
             Ok(())
         })),

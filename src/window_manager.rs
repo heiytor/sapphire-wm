@@ -284,7 +284,7 @@ impl WindowManager {
                 if let Some(c) = t.get_mut(event.window()) {
                     if state == self.conn.WM_STATE_FULLSCREEN() {
                         _ = c.set_state(&self.conn, ClientState::Fullscreen, operation);
-                        manager.draw_clients_from(&[curr_tag]);
+                        _ = manager.draw_clients_from(&[curr_tag]);
                     }
                 }
             }
@@ -344,7 +344,7 @@ impl WindowManager {
             _ = tag.set_focused(c.wid);
         }
         
-        manager.draw_clients_from(&[curr_tag]);
+        _ = manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
 
         self.conn.flush();
@@ -418,7 +418,7 @@ impl WindowManager {
         tag.manage(client);
         tag.set_focused_if(wid, |c| c.is_controlled());
 
-        manager.draw_clients_from(&[curr_tag]);
+        _ = manager.draw_clients_from(&[curr_tag]);
         manager.refresh();
 
         self.conn.flush();
@@ -435,7 +435,7 @@ impl WindowManager {
 
             if let Some(c) = t.get(event.child()) {
                 t.set_focused_if(c.wid, |c| c.is_controlled());
-                manager.draw_clients_from(&[curr_tag]); // we only need to update the borders
+                _ = manager.draw_clients_from(&[curr_tag]); // we only need to update the borders
             }
         }
     }
