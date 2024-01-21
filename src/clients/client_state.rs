@@ -22,6 +22,9 @@ pub enum ClientState {
     /// Indicates that a client has the `WM_STATE_STICKY` atom. This state cannot be
     /// toggled, as SapphireWM only allows docks to have it.
     Sticky,
+
+    /// Indicates that a client has the `_NET_WM_STATE_HIDDEN` atom. 
+    Hidden,
 }
 
 impl ClientState {
@@ -36,6 +39,7 @@ impl ClientState {
                 conn.WM_STATE_MAXIMIZED_HORZ(),
             ],
             ClientState::Sticky => vec![conn.WM_STATE_STICKY()],
+            ClientState::Hidden => vec![conn.WM_STATE_HIDDEN()],
             ClientState::Tile => vec![0], // When tiling, the client doesn't have any WM state.
         }
     }

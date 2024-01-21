@@ -231,17 +231,6 @@ impl Tag {
             _ => None,
         }
     }
-
-    pub fn focus(&mut self) {
-        xcb_util::ewmh::set_current_desktop(&self.conn, 0, self.id);
-        self.clients.iter_mut().for_each(|c| c.show(&self.conn));
-
-        let conn = self.conn.clone();
-        match self.get_mut(self.focused_wid) {
-            Some(c) => c.set_input_focus(&conn),
-            None => util::disable_input_focus(&self.conn),
-        };
-    }
 }
 
 pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
@@ -252,19 +241,19 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
     let screen_w = screen.width_in_pixels() as u32;
     let screen_h = screen.height_in_pixels() as u32;
 
-    let padding_top = clients.iter().map(|c| c.padding_top).max().unwrap_or(0);
-    let padding_bottom = clients.iter().map(|c| c.padding_bottom).max().unwrap_or(0);
-    let padding_left = clients.iter().map(|c| c.padding_left).max().unwrap_or(0);
-    let padding_right = clients.iter().map(|c| c.padding_right).max().unwrap_or(0);
+    let padding_top = clients.iter().map(|c| c.padding.top).max().unwrap_or(0);
+    let padding_bottom = clients.iter().map(|c| c.padding.bottom).max().unwrap_or(0);
+    let padding_left = clients.iter().map(|c| c.padding.left).max().unwrap_or(0);
+    let padding_right = clients.iter().map(|c| c.padding.right).max().unwrap_or(0);
 
-    // The available width and height represent the pixels available for drawing windows.
+    // The available wimut dth and height represent the pixels available for drawing windows.
     // They are the total screen dimensions minus the specified paddings.
     let available_w = screen_w - padding_left - padding_right;
     let available_h = screen_h - padding_top - padding_bottom;
 
     let normal_clients: Vec<&Client> = clients
         .iter()
-        .filter(|c| c.is_controlled() && c.is_visible())
+        .filter(|c| c.last_state() != &ClientState::Hidden && c.is_controlled())
         .collect();
 
     // Starting tilling at top-right
@@ -314,7 +303,7 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
 
     let maximized_clients: Vec<&Client> = clients
         .iter()
-        .filter(|c| c.last_state() == &ClientState::Maximized && c.is_controlled() && c.is_visible())
+        .filter(|c| c.last_state() == &ClientState::Maximized && c.is_controlled())
         .collect();
 
     for client in maximized_clients.iter() {
@@ -333,7 +322,7 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
 
     let fullscreen_clients: Vec<&Client> = clients
         .iter()
-        .filter(|c| c.last_state() == &ClientState::Fullscreen && c.is_controlled() && c.is_visible())
+        .filter(|c| c.last_state() == &ClientState::Fullscreen && c.is_controlled())
         .collect();
 
     for client in fullscreen_clients.iter() {
@@ -352,6 +341,8 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
 }
 
 pub struct Manager {
+    id: i32,
+
     conn: Arc<ewmh::Connection>,
 
     /// Stores information about all the tags in the window manager. Each tag is responsible for
@@ -371,7 +362,7 @@ pub struct Manager {
 
     config: Arc<Config>,
 
-    pub focused_tag_id: u32,
+    pub focused_tag_id: TagID,
 }
 
 impl Manager {
@@ -384,6 +375,7 @@ impl Manager {
         tags.push(Tag::new((tags.len()-1) as u32, "sticky_clients", conn.clone()));
 
         Self {
+            id: 0,
             conn,
             tags,
             config,
@@ -393,15 +385,25 @@ impl Manager {
 }
 
 impl Manager {
-    /// Returns an immutable reference to the sticky tag. As the window manager ensures that this
-    /// tag always exists, it will never be `None`.
-    pub fn sticky_tag(&self) -> &Tag {
-        self.tags.get(self.tags.len()-1).unwrap()
+    fn set_focused_tag(&mut self, tag_id: TagID) {
+        ewmh::set_current_desktop(&self.conn, self.id, tag_id);
+        self.focused_tag_id = tag_id;
     }
 
-    /// Returns a mutable reference to the sticky tag. As the window manager ensures that this tag
-    /// always exists, it will never be `None`.
+    pub fn contains_tag(&self, tag_id: TagID) -> bool {
+        self.tags.iter().any(|t| t.get_id() == &tag_id)
+    }
+
+    /// Returns an immutable reference to the sticky tag.
+    pub fn sticky_tag(&self) -> &Tag {
+        // As the window manager ensures that this tag always exists, it will never be `None`.
+        let idx = self.tags.len()-1;
+        self.tags.get(idx).unwrap()
+    }
+
+    /// Returns a mutable reference to the sticky tag.
     pub fn sticky_tag_mut(&mut self) -> &mut Tag {
+        // As the window manager ensures that this tag always exists, it will never be `None`.
         let idx = self.tags.len()-1;
         self.tags.get_mut(idx).unwrap()
     }
@@ -416,46 +418,94 @@ impl Manager {
         self.tags.iter_mut().find(|t| t.id == tag)
     }
 
-    /// Focuses the tag with ID `id`. Returns `TagErr::NotFound(id)` when the provided ID does not
-    /// exist. It will remove the previously focused tag, if any; also set the input focus to the
-    /// focused client on the newly focused tag, if any.
-    pub fn focus_tag(&mut self, id: u32) -> Result<(), String> {
-        if self.focused_tag_id == id {
-            return Ok(())
-        }
+    /// Readjust the layout of the tag with ID `id`. Returns `TagErr::NotFound(id)` when the
+    /// provided ID does not exist.
+    pub fn refresh_tag(&self, id: TagID) -> Result<(), TagErr> {
+        let tag = self.get_tag(id).ok_or(TagErr::NotFound(id))?;
 
-        // We save the old focused ID to unfocus the old tag later.
-        let old_focused_tag_id = self.focused_tag_id;
-        let new_focused_tag = self.get_tag_mut(id).ok_or_else(|| TagErr::NotFound(id).to_string())?;
+        // Ensures that the sticky clients are drawn.
+        let mut clients: Vec<Client> = self.sticky_tag().get_all().iter().cloned().collect();
+        clients.extend(tag.get_all().iter().cloned());
 
-        new_focused_tag.focus();
-        _ = self.draw_clients_from(&[id]);
-        self.focused_tag_id = id;
+        redraw(&self.conn, clients, &self.config);
+        Ok(())
+    }
 
+    /// Focuses and view the tag with ID `id`. It will also set the input focus to the focused
+    /// client on the tag, if any. Returns `TagErr::NotFound(id)` when the provided ID does not
+    /// exist. 
+    pub fn view_tag(&mut self, id: u32) -> Result<(), TagErr> {
         let conn = self.conn.clone();
-        if let Some(t) = self.get_tag_mut(old_focused_tag_id) {
-            t.get_all_mut().iter_mut().for_each(|c| c.hide(&conn))
+
+        let dtag = self.get_tag_mut(id).ok_or(TagErr::NotFound(id))?;
+        dtag.get_all_mut()
+            .iter_mut()
+            .for_each(|c| {
+                if !c.has_state(&ClientState::Hidden) { c.map(&conn) }
+            });
+
+        // Set the input focus to the currently focused client on dtag, if one exists; otherwise
+        // disable the input.
+        match dtag.get_focused_mut() {
+            Some(c) => c.set_input_focus(&conn),
+            None => util::disable_input_focus(&conn),
         }
+
+        // Before updating the ID of the focused tag, we hide all visible clients on the current
+        // focused tag if any.
+        if let Some(tag) = self.get_tag_mut(self.focused_tag_id) {
+            tag.get_all_mut()
+                .iter_mut()
+                .for_each(|c| {
+                    if !c.has_state(&ClientState::Hidden) { c.unmap(&conn) }
+                });
+        }
+
+        _ = self.refresh_tag(id);
+        self.set_focused_tag(id);
 
         Ok(())
     }
 
-    /// Draws a list of specified clients on the current tag. The list of clients is built from
-    /// the `tags_id`, which fetch the clients from all specified tags and then draw them, effectively
-    /// drawing the clients from `n` tags on the current one.
-    ///
-    /// It also ensures that the `sticky_clients` are always drawn in the window. Refer to `Manager::tags`
-    /// for more information about sticky clients.
-    pub fn draw_clients_from(&self, tags_id: &[TagID]) -> Result<(), String> {
-        // Ensure that the tag is always drawn with sticky clients.
-        let mut clients: Vec<Client> = self.sticky_tag().get_all().iter().cloned().collect();
-
-        for id in tags_id {
-            let t = self.get_tag(*id).ok_or_else(|| TagErr::NotFound(*id).to_string())?;
-            clients.extend(t.get_all().iter().cloned());
+    /// Moves the currently focused client from the source tag to destination tag. Returns
+    /// `TagErr::NotFound(src|dest)` when any provided ID does not exist.
+    pub fn move_focused_client(&mut self, src: TagID, dest: TagID) -> Result<(), TagErr> {
+        if !self.contains_tag(src) {
+            return Err(TagErr::NotFound(src))
         }
 
-        redraw(&self.conn, clients, &self.config);
+        if !self.contains_tag(dest) {
+            return Err(TagErr::NotFound(dest))
+        }
+
+        let conn = self.conn.clone();
+
+        // Unmanage and hide the focused client of the source tag.
+        let s_tag = self.get_tag_mut(src).unwrap();
+
+        let client = s_tag.get_focused_mut().unwrap().clone();
+        client.unmap(&conn);
+        let client_id = client.wid;
+
+        s_tag.unmanage(client_id);
+    
+        // Set the most recent client as input focus on the source tag if any.
+        if let Some(c) = s_tag.get_first_when(|c| c.is_controlled()) {
+            s_tag.set_focused(c.wid);
+        } else {
+            util::disable_input_focus(&conn)
+        }
+
+        // Move the client to the destination tag
+        let d_tag = self.get_tag_mut(dest).ok_or(TagErr::NotFound(dest))?;
+
+        d_tag.manage(client);
+        d_tag.set_focused(client_id);
+        util::set_client_tag(&conn, client_id, dest);
+
+        _ = self.refresh_tag(dest);
+        _ = self.refresh_tag(src);
+
         Ok(())
     }
 
@@ -475,5 +525,4 @@ impl Manager {
             &clients.iter().map(|c| c.wid).collect::<Vec<u32>>(),
         );
     }
-
 }

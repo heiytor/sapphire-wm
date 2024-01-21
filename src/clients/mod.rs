@@ -1,17 +1,17 @@
 pub mod client_action;
 pub mod client_state;
 pub mod client_type;
+pub mod util;
 
 use xcb_util::ewmh;
 
-use crate::{
-    clients::{
-        client_action::ClientAction,
-        client_state::ClientState,
-        client_type::ClientType,
-    },
-    tag::TagID,
+use crate::clients::{
+    client_action::ClientAction,
+    client_state::ClientState,
+    client_type::ClientType,
 };
+
+use self::util::ClientPadding;
 
 /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
 /// `event.event()` in XCB events.
@@ -29,8 +29,9 @@ pub struct Client {
     /// The `WM_CLASS` of the client.
     pub wm_class: Option<String>,
 
+    pub padding: ClientPadding,
+
     is_controlled: bool,
-    is_visible: bool,
 
     // TODO: docs
     r#type: ClientType,
@@ -55,38 +56,6 @@ pub struct Client {
     ///
     /// Refer to: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142837824
     allowed_actions: Vec<ClientAction>,
-
-    pub padding_top: u32,
-    pub padding_bottom: u32,
-    pub padding_left: u32,
-    pub padding_right: u32,
-
-    tag_id: TagID,
-    pub screen: u32,
-    pub is_focused: bool,
-}
-
-impl Default for Client {
-    fn default() -> Self {
-        Client { 
-            wid: 0,
-            is_controlled: false,
-            padding_top: 0,
-            padding_bottom: 0,
-            padding_left: 0,
-            padding_right: 0,
-            is_visible: false,
-            r#type: ClientType::Normal,
-            tag_id: 0,
-            screen: 0,
-            is_focused: false,
-            states: vec![],
-            allowed_actions: vec![],
-
-            wm_class: None,
-            wm_pid: None,
-        }
-    }
 }
 
 impl Client {
@@ -94,39 +63,23 @@ impl Client {
         Client { 
             wid,
             is_controlled: true,
-            padding_top: 0,
-            padding_bottom: 0,
-            padding_left: 0,
-            padding_right: 0,
-            is_visible: true,
+            padding: ClientPadding { top: 0, bottom: 0, left: 0, right: 0 },
             r#type: ClientType::Normal,
-            tag_id: 0,
-            screen: 0,
-            is_focused: false,
             states: vec![],
             allowed_actions: vec![],
-
             wm_class: None,
             wm_pid: None,
         }
     }
 
-    pub fn show(&mut self, conn: &ewmh::Connection) {
-        self.is_visible = true;
+    /// Maps a window.
+    pub fn map(&self, conn: &ewmh::Connection) {
         xcb::map_window(conn, self.wid);
     }
 
-    pub fn hide(&mut self, conn: &ewmh::Connection) {
-        self.is_visible = false;
+    /// Unmaps a window.
+    pub fn unmap(&self, conn: &ewmh::Connection) {
         xcb::unmap_window(conn, self.wid);
-    }
-
-    /// Sets the padding values for the client.
-    pub fn set_paddings(&mut self, top: u32, bottom: u32, left: u32, right: u32) {
-        self.padding_top = top;
-        self.padding_bottom = bottom;
-        self.padding_left = left;
-        self.padding_right = right;
     }
 
     /// Returns whether the client needs control.
@@ -134,12 +87,6 @@ impl Client {
     pub fn is_controlled(&self) -> bool {
         self.is_controlled
     }
-
-    #[inline]
-    pub fn is_visible(&self) -> bool {
-        self.is_visible
-    }
-
 
     pub fn set_border(&self, conn: &ewmh::Connection, color: u32) {
         xcb::change_window_attributes(
@@ -174,10 +121,5 @@ impl Client {
                 | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
             )],
         );
-    }
-
-    pub fn set_tag(&mut self, conn: &ewmh::Connection, id: TagID) {
-        ewmh::set_wm_desktop(conn, self.wid, id);
-        self.tag_id = id;
     }
 }

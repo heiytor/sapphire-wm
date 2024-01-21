@@ -137,7 +137,7 @@ fn main() {
                 _ = tag.swap(c1.wid, c2.wid);
             }
 
-            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
+            _ = manager.refresh_tag(ctx.curr_tag_id());
 
             Ok(())
         })),
@@ -154,7 +154,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
+            _ = manager.refresh_tag(ctx.curr_tag_id());
 
             Ok(())
         })),
@@ -171,7 +171,7 @@ fn main() {
             }
 
             client.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-            _ = manager.draw_clients_from(&[ctx.curr_tag_id()]);
+            _ = manager.refresh_tag(ctx.curr_tag_id());
 
             Ok(())
         })),
@@ -182,18 +182,29 @@ fn main() {
     for id in 0..tags.len() as u32 {
         let key = (id+1).to_string();
         on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), Box::new(move |ctx: EventContext| {
-            let mut man = ctx.manager.lock().unwrap();
-            man.focus_tag(id)
+            let mut screen = ctx.manager.lock().unwrap();
+
+            if id != screen.focused_tag_id {
+                _ = screen.view_tag(id).map_err(|e| e.to_string())?;
+            }
+
+            Ok(())
         })));
 
         on_keypress_actions.push(OnKeypress::new(&[modkey, modkeys::MODKEY_CONTROL], key.as_str(), Box::new(move |ctx: EventContext| {
-            // let mut man = ctx.manager.lock().unwrap();
-            // man.move_client(t.focused_client, ctx.curr_tag_id(), id);
+            let mut screen = ctx.manager.lock().unwrap();
+
+            if id != ctx.curr_tag_id() {
+                _ = screen.move_focused_client(ctx.curr_tag_id(), id).map_err(|e| e.to_string())?;
+                // Optionally, follow:
+                _ = screen.view_tag(id).map_err(|e| e.to_string())?;
+            }
+
             Ok(())
         })));
     }
 
-    wm.on_keypress(on_keypress_actions.as_slice());
+    wm.on_keypress(&mut on_keypress_actions);
 
     wm.run();
 }

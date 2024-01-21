@@ -51,3 +51,10 @@ pub fn window_has_type(conn: &ewmh::Connection, wid: u32, atom: xcb::Atom) -> bo
         .get_reply()
         .map_or(false, |w| w.atoms().contains(&atom))
 }
+
+/// Updates the client's `_NET_WM_DESKTOP` to the specified tag.
+#[inline(always)]
+pub fn set_client_tag(conn: &ewmh::Connection, client_id: u32, tag_id: u32) {
+    ewmh::set_wm_desktop(conn, client_id, tag_id);
+}
+

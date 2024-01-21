@@ -19,7 +19,7 @@ use crate::{
     config::Config,
     action::{
         on_startup::OnStartup,
-        on_keypress::OnKeypress
+        on_keypress::{OnKeypress, KeyCombination}
     },
     tag::{
         Manager,
@@ -34,7 +34,10 @@ pub struct WindowManager {
     pub config: Arc<Config>,
 
     startup_actions: Vec<OnStartup>,
-    keypress_actions: HashMap<u8, OnKeypress>,
+    
+    // TODO: There is probably a better way to hash the keypress action without a struct for this.
+    keypress_actions: HashMap<KeyCombination, OnKeypress>,
+
     manager: Arc<Mutex<Manager>>,
 }
 
@@ -152,14 +155,14 @@ impl WindowManager {
         }
     }
 
-    pub fn on_keypress(&mut self, actions: &[OnKeypress]) {
+    pub fn on_keypress(&mut self, actions: &mut [OnKeypress]) {
         let key_symbols = keysyms::KeySymbols::new(&self.conn);
         let screen = util::get_screen(&self.conn);
 
-        for action in actions.iter() {
+        for action in actions.iter_mut() {
             match action.keycode(&key_symbols) {
                 Ok(keycode) => {
-                    self.keypress_actions.insert(keycode, action.clone());
+                    self.keypress_actions.insert(action.mask(), action.clone());
                     // Instruct XCB to send a KEY_PRESS event when the keys are pressed.
                     xcb::grab_key(
                         &self.conn,
@@ -230,7 +233,8 @@ impl WindowManager {
             xcb::KEY_PRESS => {
                 let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
 
-                match self.keypress_actions.get(&event.detail()) {
+                let mask = KeyCombination { keycode: event.detail(), modifier: event.state() }; 
+                match self.keypress_actions.get(&mask) {
                     Some(action) => {
                         let ctx = EventContext::new(self.conn.clone(), self.manager.clone());
 
@@ -307,7 +311,7 @@ impl WindowManager {
                 if let Some(c) = t.get_mut(event.window()) {
                     if state == self.conn.WM_STATE_FULLSCREEN() {
                         _ = c.set_state(&self.conn, ClientState::Fullscreen, operation);
-                        _ = manager.draw_clients_from(&[curr_tag]);
+                        _ = manager.refresh_tag(curr_tag);
                     }
                 }
             }
@@ -367,7 +371,7 @@ impl WindowManager {
                 _ = tag.set_focused(c.wid);
             }
 
-            _ = manager.draw_clients_from(&[curr_tag]);
+            _ = manager.refresh_tag(curr_tag);
             manager.refresh();
         }
     }
@@ -412,13 +416,16 @@ impl WindowManager {
         }
 
         if let Ok(strut) = ewmh::get_wm_strut_partial(&self.conn, event.window()).get_reply() {
-            client.set_paddings(strut.top, strut.bottom, strut.left, strut.right);
+            client.padding.top = strut.top;
+            client.padding.bottom = strut.bottom;
+            client.padding.left = strut.left;
+            client.padding.right = strut.right;
         };
 
         target_tag.manage(client);
         target_tag.set_focused_if(event.window(), |c| c.is_controlled());
 
-        _ = manager.draw_clients_from(&[curr_tag]);
+        _ = manager.refresh_tag(curr_tag);
         manager.refresh();
     }
 }
