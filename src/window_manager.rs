@@ -22,7 +22,7 @@ use crate::{
         on_keypress::{OnKeypress, KeyCombination}
     },
     tag::{
-        Manager,
+        Screen,
         Tag,
     },
 };
@@ -38,7 +38,7 @@ pub struct WindowManager {
     // TODO: There is probably a better way to hash the keypress action without a struct for this.
     keypress_actions: HashMap<KeyCombination, OnKeypress>,
 
-    manager: Arc<Mutex<Manager>>,
+    screen: Arc<Mutex<Screen>>,
 }
 
 impl WindowManager {
@@ -131,7 +131,7 @@ impl WindowManager {
         ewmh::set_current_desktop(&conn, 0, 0);
         ewmh::set_desktop_names(&conn, 0, tags.iter().map(|d| d.get_alias().as_ref()));
 
-        let manager = Manager::new(conn.clone(), tags, config.clone());
+        let manager = Screen::new(conn.clone(), tags, config.clone());
 
         conn.flush();
 
@@ -142,7 +142,7 @@ impl WindowManager {
             config,
             conn,
 
-            manager: Arc::new(Mutex::new(manager)),
+            screen: Arc::new(Mutex::new(manager)),
         }
     }
 }
@@ -236,7 +236,7 @@ impl WindowManager {
                 let mask = KeyCombination { keycode: event.detail(), modifier: event.state() }; 
                 match self.keypress_actions.get(&mask) {
                     Some(action) => {
-                        let ctx = EventContext::new(self.conn.clone(), self.manager.clone());
+                        let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
 
                         _ = action.call(ctx).map_err(|e| util::notify_error(e));
                     },
@@ -252,7 +252,7 @@ impl WindowManager {
                 self.conn.flush();
 
                 let inf = MouseInfo::new(e.child(), e.state(), (e.event_x(), e.event_y()));
-                let ctx = EventContext::new(self.conn.clone(), self.manager.clone());
+                let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
 
                 _ = self.mouse.trigger_with(MouseEvent::Click, ctx, inf).map_err(|e| util::notify_error(e));
             },
@@ -304,7 +304,7 @@ impl WindowManager {
                 _ => Operation::Unknown,
             };
 
-            let mut manager = self.manager.lock().unwrap();
+            let mut manager = self.screen.lock().unwrap();
 
             let curr_tag = manager.focused_tag_id;
             if let Ok(t) = manager.get_tag_mut(curr_tag) {
@@ -350,7 +350,7 @@ impl WindowManager {
     }
 
     pub(self) fn on_destroy_notify(&self, event: &xcb::DestroyNotifyEvent) {
-        let mut manager = self.manager.lock().unwrap();
+        let mut manager = self.screen.lock().unwrap();
 
         let curr_tag = manager.focused_tag_id;
         let tag = manager.get_tag_mut(curr_tag).unwrap();
@@ -379,7 +379,7 @@ impl WindowManager {
     pub(self) fn on_map_request(&self, event: &xcb::MapRequestEvent) {
         xcb::map_window(&self.conn, event.window());
 
-        let mut manager = self.manager.lock().unwrap();
+        let mut manager = self.screen.lock().unwrap();
         let curr_tag = manager.focused_tag_id;
 
         let mut r#type = ClientType::Normal;

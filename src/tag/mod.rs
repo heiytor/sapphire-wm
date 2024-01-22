@@ -340,7 +340,7 @@ pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
     }
 }
 
-pub struct Manager {
+pub struct Screen {
     id: i32,
 
     conn: Arc<ewmh::Connection>,
@@ -365,7 +365,7 @@ pub struct Manager {
     pub focused_tag_id: TagID,
 }
 
-impl Manager {
+impl Screen {
     pub fn new(conn: Arc<ewmh::Connection>, mut tags: Vec<Tag>, config: Arc<Config>) -> Self {
         if tags.is_empty() {
             tags = vec![Tag::new(0, "1", conn.clone())];
@@ -384,7 +384,7 @@ impl Manager {
     }
 }
 
-impl Manager {
+impl Screen {
     fn set_focused_tag(&mut self, tag_id: TagID) {
         ewmh::set_current_desktop(&self.conn, self.id, tag_id);
         self.focused_tag_id = tag_id;

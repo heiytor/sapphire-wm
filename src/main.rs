@@ -55,7 +55,7 @@ fn main() {
 
     // Allows focus on click.
     wm.mouse.on(MouseEvent::Click, Box::new(|ctx: EventContext, info: MouseInfo| -> Result<(), String> {
-        let mut man = ctx.manager.lock().unwrap();
+        let mut man = ctx.screen.lock().unwrap();
 
         let tag = man.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
@@ -76,7 +76,7 @@ fn main() {
 
     let modkey = modkeys::MODKEY_SHIFT;
 
-    // TODO: abstract manager
+    // TODO: abstract screen
     let mut on_keypress_actions = vec![
         OnKeypress::new(&[modkey], "a",  Box::new(|ctx: EventContext| {
             ctx.spawn("alacritty")
@@ -92,9 +92,9 @@ fn main() {
 
         // Kill the focused client on the current tag.
         OnKeypress::new(&[modkey], "End", Box::new(|ctx: EventContext| {
-            let manager = ctx.manager.lock().unwrap();
+            let screen = ctx.screen.lock().unwrap();
 
-            let tag = manager.get_tag(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+            let tag = screen.get_tag(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
             if let Ok(c) = tag.get_focused_client() {
                 c.kill(&ctx.conn);
             }
@@ -104,9 +104,9 @@ fn main() {
 
         // Move focus to left.
         OnKeypress::new(&[modkey], "h", Box::new(|ctx: EventContext| {
-            let mut manager = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
             _ = tag.walk(1, Dir::Left, |c| c.is_controlled())
                 .map(|wid| tag.set_focused_client(wid));
@@ -116,9 +116,9 @@ fn main() {
 
         // Move focus to right.
         OnKeypress::new(&[modkey], "l", Box::new(|ctx: EventContext| {
-            let mut manager = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
             _ = tag.walk(1, Dir::Right, |c| c.is_controlled())
                 .map(|wid| tag.set_focused_client(wid));
@@ -128,7 +128,7 @@ fn main() {
 
         // Swaps the current client on tag to the master window.
         OnKeypress::new(&[modkey], "Return", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
             let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
@@ -142,9 +142,9 @@ fn main() {
 
         // Toggle fullscreen mode for the currently focused client.
         OnKeypress::new(&[modkey], "f", Box::new(|ctx: EventContext| {
-            let mut manager = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
             if let Ok(c) = tag.get_focused_client_mut() {
                 if !c.allows_action(&ClientAction::Fullscreen) {
@@ -152,7 +152,7 @@ fn main() {
                 }
 
                 c.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-                _ = manager.refresh_tag(ctx.curr_tag_id());
+                _ = screen.refresh_tag(ctx.curr_tag_id());
             }
 
             Ok(())
@@ -160,9 +160,9 @@ fn main() {
 
         // Toggle maximized mode for the currently focused client.
         OnKeypress::new(&[modkey], "m", Box::new(|ctx: EventContext| {
-            let mut manager = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
-            let tag = manager.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
             if let Ok(c) = tag.get_focused_client_mut() {
                 if !c.allows_action(&ClientAction::Maximize) {
@@ -170,7 +170,7 @@ fn main() {
                 }
 
                 c.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-                _ = manager.refresh_tag(ctx.curr_tag_id());
+                _ = screen.refresh_tag(ctx.curr_tag_id());
             }
 
             Ok(())
@@ -182,7 +182,7 @@ fn main() {
     for id in 0..tags.len() as u32 {
         let key = (id+1).to_string();
         on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), Box::new(move |ctx: EventContext| {
-            let mut screen = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
             if id != screen.focused_tag_id {
                 _ = screen.view_tag(id).map_err(|e| e.to_string())?;
@@ -192,7 +192,7 @@ fn main() {
         })));
 
         on_keypress_actions.push(OnKeypress::new(&[modkey, modkeys::MODKEY_CONTROL], key.as_str(), Box::new(move |ctx: EventContext| {
-            let mut screen = ctx.manager.lock().unwrap();
+            let mut screen = ctx.screen.lock().unwrap();
 
             if id != ctx.curr_tag_id() {
                 _ = screen.move_focused_client(ctx.curr_tag_id(), id).map_err(|e| e.to_string())?;
