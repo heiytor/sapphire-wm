@@ -69,7 +69,7 @@ impl Client {
         xcb::change_property(
             conn,
             xcb::PROP_MODE_APPEND as u8,
-            self.wid,
+            self.id,
             conn.WM_STATE(),
             xcb::ATOM_ATOM,
             32,
@@ -96,7 +96,7 @@ impl Client {
         xcb::change_property(
             conn,
             xcb::PROP_MODE_REPLACE as u8,
-            self.wid,
+            self.id,
             conn.WM_STATE(),
             xcb::ATOM_ATOM,
             32,

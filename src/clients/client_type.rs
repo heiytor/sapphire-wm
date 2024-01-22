@@ -25,10 +25,10 @@ impl Client {
             ClientType::Dock => {
                 self.is_controlled = false;
                 self.add_state(conn, ClientState::Sticky);
-                util::set_client_tag(conn, self.wid, 0xFFFFFF);
+                util::set_client_tag(conn, self.id, 0xFFFFFF);
             },
             _ => {
-                util::set_client_tag(conn, self.wid, tag_id);
+                util::set_client_tag(conn, self.id, tag_id);
                 self.enable_event_mask(&conn);
                 self.allow_actions(
                     conn,

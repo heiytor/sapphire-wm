@@ -307,8 +307,8 @@ impl WindowManager {
             let mut manager = self.manager.lock().unwrap();
 
             let curr_tag = manager.focused_tag_id;
-            if let Some(t) = manager.get_tag_mut(curr_tag) {
-                if let Some(c) = t.get_mut(event.window()) {
+            if let Ok(t) = manager.get_tag_mut(curr_tag) {
+                if let Ok(c) = t.get_client_mut(event.window()) {
                     if state == self.conn.WM_STATE_FULLSCREEN() {
                         _ = c.set_state(&self.conn, ClientState::Fullscreen, operation);
                         _ = manager.refresh_tag(curr_tag);
@@ -355,20 +355,20 @@ impl WindowManager {
         let curr_tag = manager.focused_tag_id;
         let tag = manager.get_tag_mut(curr_tag).unwrap();
 
-        let client = match tag.get(event.window()) {
-            Some(c) => c.clone(), // TODO: is that clone really necessary?
-            None => return,
+        let client = match tag.get_client(event.window()) {
+            Ok(c) => c.clone(), // TODO: is that clone really necessary?
+            Err(_) => return,
         };
 
-        tag.unmanage(client.wid);
+        tag.unmanage_client(client.id);
         // TODO: destroy the window without PID. the PID must be the last thing that the WM uses to
         // destroy an window.
         if let Some(pid) = client.wm_pid {
             std::process::Command::new("kill").args(&["-9", &pid.to_string()]).output().unwrap();
 
             // Focus the master (first) client if any.
-            if let Some(c) = tag.get_first_when(|c| c.is_controlled()) {
-                _ = tag.set_focused(c.wid);
+            if let Ok(c) = tag.get_first_client_when(|c| c.is_controlled()) {
+                _ = tag.set_focused_client(c.id);
             }
 
             _ = manager.refresh_tag(curr_tag);
@@ -398,7 +398,7 @@ impl WindowManager {
             _ => manager.get_tag_mut(curr_tag).unwrap(), // TODO: remove this unwrap
         };
 
-        if target_tag.contains(event.window()) {
+        if target_tag.contains_client(event.window()) {
             return
         }
 
@@ -422,8 +422,8 @@ impl WindowManager {
             client.padding.right = strut.right;
         };
 
-        target_tag.manage(client);
-        target_tag.set_focused_if(event.window(), |c| c.is_controlled());
+        target_tag.manage_client(client);
+        target_tag.set_focused_client_if(event.window(), |c| c.is_controlled());
 
         _ = manager.refresh_tag(curr_tag);
         manager.refresh();

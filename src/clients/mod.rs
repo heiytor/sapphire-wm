@@ -21,7 +21,7 @@ pub type ClientID = u32;
 pub struct Client {
     /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
     /// `event.event()` in XCB events.
-    pub wid: ClientID,
+    pub id: ClientID,
 
     /// The `_NET_WM_PID` of the client, also known as the process ID.
     pub wm_pid: Option<u32>,
@@ -59,9 +59,9 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(wid: ClientID) -> Self {
+    pub fn new(id: ClientID) -> Self {
         Client { 
-            wid,
+            id,
             is_controlled: true,
             padding: ClientPadding { top: 0, bottom: 0, left: 0, right: 0 },
             r#type: ClientType::Normal,
@@ -74,12 +74,12 @@ impl Client {
 
     /// Maps a window.
     pub fn map(&self, conn: &ewmh::Connection) {
-        xcb::map_window(conn, self.wid);
+        xcb::map_window(conn, self.id);
     }
 
     /// Unmaps a window.
     pub fn unmap(&self, conn: &ewmh::Connection) {
-        xcb::unmap_window(conn, self.wid);
+        xcb::unmap_window(conn, self.id);
     }
 
     /// Returns whether the client needs control.
@@ -91,7 +91,7 @@ impl Client {
     pub fn set_border(&self, conn: &ewmh::Connection, color: u32) {
         xcb::change_window_attributes(
             conn,
-            self.wid,
+            self.id,
             &[(xcb::CW_BORDER_PIXEL, color)],
         );
     }
@@ -100,21 +100,21 @@ impl Client {
         xcb::set_input_focus(
             conn,
             xcb::INPUT_FOCUS_PARENT as u8,
-            self.wid,
+            self.id,
             xcb::CURRENT_TIME
         );
     }
 
     /// Sends a destroy notification to the window manager with the client's window ID.
     pub fn kill(&self, conn: &ewmh::Connection) {
-        xcb::destroy_window(conn, self.wid);
+        xcb::destroy_window(conn, self.id);
     }
 
     /// TODO: rename it!
     pub fn enable_event_mask(&self, conn: &ewmh::Connection) {
         xcb::change_window_attributes(
             conn,
-            self.wid,
+            self.id,
             &[(
                 xcb::CW_EVENT_MASK,
                 xcb::EVENT_MASK_PROPERTY_CHANGE

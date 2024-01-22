@@ -52,7 +52,7 @@ impl Client {
             .flat_map(|s| s._net_wm_allowed_actions(conn))
             .collect();
 
-        ewmh::set_wm_allowed_actions(&conn, self.wid, new_net_allowed_actions.as_slice());
+        ewmh::set_wm_allowed_actions(&conn, self.id, new_net_allowed_actions.as_slice());
     }
 
     /// Similar to `Client::allow_action`, but allows `n` actions at a time. Since each
@@ -71,6 +71,6 @@ impl Client {
             .flat_map(|s| s._net_wm_allowed_actions(conn))
             .collect();
 
-        ewmh::set_wm_allowed_actions(&conn, self.wid, new_net_allowed_actions.as_slice());
+        ewmh::set_wm_allowed_actions(&conn, self.id, new_net_allowed_actions.as_slice());
     }
 }
