@@ -2,7 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use xcb_util::ewmh;
 
-use crate::tag::{Screen, TagID};
+use crate::{
+    screen::Screen,
+    tag::TagID,
+};
 
 #[derive(Clone)]
 pub struct EventContext {
@@ -12,14 +15,14 @@ pub struct EventContext {
 }
 
 impl EventContext {
-    pub fn new(conn: Arc<ewmh::Connection>, man: Arc<Mutex<Screen>>) -> Self {
+    pub fn new(conn: Arc<ewmh::Connection>, screen: Arc<Mutex<Screen>>) -> Self {
         let curr_tag_id = {
-            man.lock().unwrap().focused_tag_id
+            screen.lock().unwrap().get_focused_tag().unwrap().id
         };
 
         Self {
             conn,
-            screen: man,
+            screen,
             curr_tag_id,
         }
     }

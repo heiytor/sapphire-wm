@@ -3,8 +3,6 @@ use std::{sync::Arc, collections::VecDeque};
 use xcb_util::ewmh;
 
 use crate::{
-    util,
-    config::Config,
     clients::{
         Client,
         ClientID,
@@ -21,13 +19,11 @@ pub enum Dir {
 pub type TagID = u32;
 
 pub struct Tag {
-    id: TagID,
+    pub id: TagID,
     
-    conn: Arc<ewmh::Connection>,
+    pub alias: String,
 
-    // TODO: remove this allow
-    #[allow(dead_code)]
-    alias: String,
+    conn: Arc<ewmh::Connection>,
 
     /// 0 when no client is focused
     pub focused_wid: ClientID,
@@ -44,18 +40,6 @@ impl Tag {
             focused_wid: 0,
             clients: VecDeque::new(),
         }
-    }
-}
-
-impl Tag {
-    /// Retrieves the id of the tag.
-    pub fn get_id(&self) -> TagID {
-        self.id.clone()
-    }
-
-    /// Retrieves the alias of the tag.
-    pub fn get_alias(&self) -> &str {
-        self.alias.as_str()
     }
 
     /// Verifies if the tag contains a client with ID `id`.
@@ -79,16 +63,6 @@ impl Tag {
     /// Note: It does not update the "_NET_CLIENT_LIST"; use `Manager::refresh()` for that purpose.
     pub fn unmanage_client(&mut self, wid: ClientID) {
         self.clients.retain(|c| c.id != wid);
-    }
-
-    /// Returns an immutable reference to the client list.
-    pub fn get_clients(&self) -> &VecDeque<Client> {
-        &self.clients
-    }
-    
-    /// Returns a mutable reference to the client list.
-    pub fn get_clients_mut(&mut self) -> &mut VecDeque<Client> {
-        &mut self.clients
     }
 
     /// Retrieves an immutable reference to the fisrt client that matches with predicate.
@@ -164,6 +138,28 @@ impl Tag {
         None
     }
 
+    pub fn clone_clients(&self) -> Vec<Client> {
+        self.clients.iter().cloned().collect()
+    }
+    
+    /// Maps all visible clients of the tag.
+    pub fn map(&self) {
+        self.clients
+            .iter()
+            .for_each(|c| {
+                if !c.has_state(&ClientState::Hidden) { c.map(&self.conn) }
+            });
+    }
+
+    /// Unmaps all visible clients of the tag.
+    pub fn unmap(&self) {
+        self.clients
+            .iter()
+            .for_each(|c| {
+                if !c.has_state(&ClientState::Hidden) { c.unmap(&self.conn) }
+            });
+    }
+
     /// Walks `n` clients in the specified direction `dir`, targeting the first client
     /// that matches with the `predicate`. It automatically loops through the clients
     /// vector.
@@ -230,301 +226,5 @@ impl Tag {
             (Some(i), Some(j)) => Some(self.clients.swap(i, j)),
             _ => None,
         }
-    }
-}
-
-pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
-    let border_size = config.border.size;
-
-    // ....
-    let screen = util::get_screen(conn);
-    let screen_w = screen.width_in_pixels() as u32;
-    let screen_h = screen.height_in_pixels() as u32;
-
-    let padding_top = clients.iter().map(|c| c.padding.top).max().unwrap_or(0);
-    let padding_bottom = clients.iter().map(|c| c.padding.bottom).max().unwrap_or(0);
-    let padding_left = clients.iter().map(|c| c.padding.left).max().unwrap_or(0);
-    let padding_right = clients.iter().map(|c| c.padding.right).max().unwrap_or(0);
-
-    // The available wimut dth and height represent the pixels available for drawing windows.
-    // They are the total screen dimensions minus the specified paddings.
-    let available_w = screen_w - padding_left - padding_right;
-    let available_h = screen_h - padding_top - padding_bottom;
-
-    let normal_clients: Vec<&Client> = clients
-        .iter()
-        .filter(|c| c.last_state() != &ClientState::Hidden && c.is_controlled())
-        .collect();
-
-    // Starting tilling at top-right
-    let mut window_x: u32 = config.gap_size;
-    let mut window_y: u32 = config.gap_size + padding_top;
-
-    // ...
-    let mut window_h: u32 = available_h - (border_size * 2) - (config.gap_size * 2);
-    let mut window_w: u32 = if normal_clients.len() == 1 { 
-        available_w - (border_size * 2) - (config.gap_size * 2)
-    } else { 
-        available_w / 2 - border_size - config.gap_size
-    };
-
-    for (i, client) in normal_clients.iter().enumerate() {
-        if i > 0 {
-            // Since the master window always fills the left-middle of the
-            // screen, the other windows will only occupy the right-middle portion.
-            window_w = (available_w / 2) - (border_size * 2) - (config.gap_size * 2);
-            // window_w = available_w / 2 - self.config.border - self.config.gap;
-            window_x = available_w / 2 + config.gap_size;
-
-            // Adjusting the height for each window located in the right-middle portion of the screen
-            // to ensure they fit proportionally based on the total number of windows.
-            let height_per_window = available_h / (normal_clients.len() - 1) as u32;
-
-            window_y = (height_per_window * (i - 1) as u32) + padding_top + config.gap_size;
-            window_h = if client.id == normal_clients.last().unwrap().id {
-                height_per_window - (border_size * 2) - (config.gap_size * 2)
-            } else {
-                height_per_window - border_size - config.gap_size
-            };
-        }
-
-        xcb::configure_window(
-            &conn,
-            client.id,
-            &[
-            (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, border_size),
-            (xcb::CONFIG_WINDOW_HEIGHT as u16, window_h),
-            (xcb::CONFIG_WINDOW_WIDTH as u16, window_w),
-            (xcb::CONFIG_WINDOW_X as u16, window_x),
-            (xcb::CONFIG_WINDOW_Y as u16, window_y),
-            ],
-        );
-    }
-
-    let maximized_clients: Vec<&Client> = clients
-        .iter()
-        .filter(|c| c.last_state() == &ClientState::Maximized && c.is_controlled())
-        .collect();
-
-    for client in maximized_clients.iter() {
-        xcb::configure_window(
-            &conn,
-            client.id,
-            &[
-            (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-            (xcb::CONFIG_WINDOW_HEIGHT as u16, available_h),
-            (xcb::CONFIG_WINDOW_WIDTH as u16, available_w),
-            (xcb::CONFIG_WINDOW_X as u16, 0 + padding_left),
-            (xcb::CONFIG_WINDOW_Y as u16, 0 + padding_top),
-            ],
-        );
-    }
-
-    let fullscreen_clients: Vec<&Client> = clients
-        .iter()
-        .filter(|c| c.last_state() == &ClientState::Fullscreen && c.is_controlled())
-        .collect();
-
-    for client in fullscreen_clients.iter() {
-        xcb::configure_window(
-            &conn,
-            client.id,
-            &[
-                (xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, 0),
-                (xcb::CONFIG_WINDOW_HEIGHT as u16, screen_h),
-                (xcb::CONFIG_WINDOW_WIDTH as u16, screen_w),
-                (xcb::CONFIG_WINDOW_X as u16, 0),
-                (xcb::CONFIG_WINDOW_Y as u16, 0),
-            ],
-        );
-    }
-}
-
-pub struct Screen {
-    id: i32,
-
-    conn: Arc<ewmh::Connection>,
-
-    /// Stores information about all the tags in the window manager. Each tag is responsible for
-    /// managing its own clients. This vector is never empty, and must store at least 1 valid tag.
-    ///
-    /// The last tag in the vector is reserved for storing "sticky" clients. `Sticky` clients are
-    /// those that the window manager must keep on the screen even when changing tags, such as
-    /// docks, SapphireWM always ensures that this tag exists and does not allow "normal" clients
-    /// (e.g., terminals) to be in sticky mode.
-    /// See: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142867040
-    /// Use either `Manager::sticky_tag()` or `Manager::sticky_tag_mut()` to retrieve such
-    /// clients.
-    // TODO: 
-    // Maybe this approach is too expensive and we should store all clients in a Manager
-    // vector.
-    tags: Vec<Tag>,
-
-    config: Arc<Config>,
-
-    pub focused_tag_id: TagID,
-}
-
-impl Screen {
-    pub fn new(conn: Arc<ewmh::Connection>, mut tags: Vec<Tag>, config: Arc<Config>) -> Self {
-        if tags.is_empty() {
-            tags = vec![Tag::new(0, "1", conn.clone())];
-        }
-
-        // Create the sticky tag.
-        tags.push(Tag::new((tags.len()-1) as u32, "sticky_clients", conn.clone()));
-
-        Self {
-            id: 0,
-            conn,
-            tags,
-            config,
-            focused_tag_id: 0,
-        }
-    }
-}
-
-impl Screen {
-    fn set_focused_tag(&mut self, tag_id: TagID) {
-        ewmh::set_current_desktop(&self.conn, self.id, tag_id);
-        self.focused_tag_id = tag_id;
-    }
-
-    pub fn contains_tag(&self, tag_id: TagID) -> bool {
-        self.tags.iter().any(|t| t.get_id() == tag_id)
-    }
-
-    /// Returns an immutable reference to the sticky tag.
-    pub fn sticky_tag(&self) -> &Tag {
-        // As the window manager ensures that this tag always exists, it will never be `None`.
-        let idx = self.tags.len()-1;
-        self.tags.get(idx).unwrap()
-    }
-
-    /// Returns a mutable reference to the sticky tag.
-    pub fn sticky_tag_mut(&mut self) -> &mut Tag {
-        // As the window manager ensures that this tag always exists, it will never be `None`.
-        let idx = self.tags.len()-1;
-        self.tags.get_mut(idx).unwrap()
-    }
-
-    /// Returns a immutable reference to the specified tag or `Error::TagNotFound(id)` when the
-    /// provided ID does not exist.
-    pub fn get_tag(&self, id: u32) -> Result<&Tag, Error> {
-        self.tags.iter().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
-    }
-
-    /// Returns a mutable reference to the specified tag or `Error::TagNotFound(id)` when the
-    /// provided ID does not exist.
-    pub fn get_tag_mut(&mut self, id: u32) -> Result<&mut Tag, Error> {
-        self.tags.iter_mut().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
-    }
-
-    /// Readjust the layout of the tag with ID `id`. Returns `Error::TagNotFound(id)` when the
-    /// provided ID does not exist.
-    pub fn refresh_tag(&self, id: TagID) -> Result<(), Error> {
-        let tag = self.get_tag(id)?;
-
-        // Ensures that the sticky clients are drawn.
-        let mut clients: Vec<Client> = self.sticky_tag().get_clients().iter().cloned().collect();
-        clients.extend(tag.get_clients().iter().cloned());
-
-        redraw(&self.conn, clients, &self.config);
-        Ok(())
-    }
-
-    /// Focuses and view the tag with ID `id`. It will also set the input focus to the focused
-    /// client on the tag, if any. Returns `Error::TagNotFound(id)` when the provided ID does not
-    /// exist. 
-    pub fn view_tag(&mut self, id: u32) -> Result<(), Error> {
-        let conn = self.conn.clone();
-
-        let dtag = self.get_tag_mut(id)?;
-        dtag.get_clients_mut()
-            .iter_mut()
-            .for_each(|c| {
-                if !c.has_state(&ClientState::Hidden) { c.map(&conn) }
-            });
-
-        // Set the input focus to the currently focused client on dtag, if one exists; otherwise
-        // disable the input.
-        match dtag.get_focused_client_mut() {
-            Ok(c) => c.set_input_focus(&conn),
-            Err(_) => util::disable_input_focus(&conn),
-        }
-
-        // Before updating the ID of the focused tag, we hide all visible clients on the current
-        // focused tag if any.
-        if let Ok(tag) = self.get_tag_mut(self.focused_tag_id) {
-            tag.get_clients_mut()
-                .iter_mut()
-                .for_each(|c| {
-                    if !c.has_state(&ClientState::Hidden) { c.unmap(&conn) }
-                });
-        }
-
-        _ = self.refresh_tag(id);
-        self.set_focused_tag(id);
-
-        Ok(())
-    }
-
-    /// Moves the currently focused client from the source tag to destination tag. Returns
-    /// `Error::TagNotFound(src|dest)` when any provided ID does not exist.
-    pub fn move_focused_client(&mut self, src: TagID, dest: TagID) -> Result<(), Error> {
-        if !self.contains_tag(src) {
-            return Err(Error::TagNotFound(src))
-        }
-
-        if !self.contains_tag(dest) {
-            return Err(Error::TagNotFound(dest))
-        }
-
-        let conn = self.conn.clone();
-
-        // Unmanage and hide the focused client of the source tag.
-        let s_tag = self.get_tag_mut(src).unwrap();
-
-        let client = s_tag.get_focused_client_mut().unwrap().clone();
-        client.unmap(&conn);
-        let client_id = client.id;
-
-        s_tag.unmanage_client(client_id);
-    
-        // Set the most recent client as input focus on the source tag if any.
-        if let Ok(c) = s_tag.get_first_client_when(|c| c.is_controlled()) {
-            s_tag.set_focused_client(c.id);
-        } else {
-            util::disable_input_focus(&conn)
-        }
-
-        // Move the client to the destination tag
-        let d_tag = self.get_tag_mut(dest).unwrap();
-
-        d_tag.manage_client(client);
-        d_tag.set_focused_client(client_id);
-        util::set_client_tag(&conn, client_id, dest);
-
-        _ = self.refresh_tag(dest);
-        _ = self.refresh_tag(src);
-
-        Ok(())
-    }
-
-    /// Refreshes the "_NET_CLIENT_LIST" with the current list of clients in all tags.
-    pub fn refresh(&self) {
-        // TODO: make it less verbose and more performatic
-        let mut clients: VecDeque<&Client> = VecDeque::new();
-        for t in self.tags.iter() {
-            for c in t.get_clients() {
-                clients.push_front(c)
-            }
-        }
-
-        ewmh::set_client_list(
-            &self.conn,
-            0,
-            &clients.iter().map(|c| c.id).collect::<Vec<u32>>(),
-        );
     }
 }

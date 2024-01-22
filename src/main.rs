@@ -3,8 +3,10 @@ mod clients;
 mod config;
 mod errors;
 mod event_context;
+mod handlers;
 mod mouse;
 mod window_manager;
+mod screen;
 mod tag;
 mod util;
 
@@ -31,6 +33,8 @@ use crate::{
 };
 
 fn main() {
+    let mut config = Config::default();
+
     let tags = vec![
         String::from("1"),
         String::from("2"),
@@ -43,8 +47,6 @@ fn main() {
         String::from("9"),
     ];
 
-    let mut config = Config::default();
-
     config.border.size = 2;
     config.border.active_color = 0xff00f7;
     config.border.inactive_color = 0xfff200;
@@ -54,10 +56,10 @@ fn main() {
     let mut wm = WindowManager::new(config);
 
     // Allows focus on click.
-    wm.mouse.on(MouseEvent::Click, Box::new(|ctx: EventContext, info: MouseInfo| -> Result<(), String> {
-        let mut man = ctx.screen.lock().unwrap();
+    wm.mouse.on(MouseEvent::Click, Box::new(|ctx: EventContext, info: MouseInfo| {
+        let mut screen = ctx.screen.lock().unwrap();
 
-        let tag = man.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+        let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
 
         if tag.focused_wid != info.c_id {
             tag.set_focused_client_if(info.c_id, |c| c.is_controlled());
@@ -184,7 +186,7 @@ fn main() {
         on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), Box::new(move |ctx: EventContext| {
             let mut screen = ctx.screen.lock().unwrap();
 
-            if id != screen.focused_tag_id {
+            if id != ctx.curr_tag_id() {
                 _ = screen.view_tag(id).map_err(|e| e.to_string())?;
             }
 
@@ -197,7 +199,7 @@ fn main() {
             if id != ctx.curr_tag_id() {
                 _ = screen.move_focused_client(ctx.curr_tag_id(), id).map_err(|e| e.to_string())?;
                 // Optionally, follow
-                _ = screen.view_tag(id).map_err(|e| e.to_string())?;
+                // _ = screen.view_tag(id).map_err(|e| e.to_string())?;
             }
 
             Ok(())
