@@ -1,8 +1,9 @@
 use xcb_util::ewmh;
 
 use crate::{
-    clients::Client,
+    client::Client,
     util::Operation,
+    errors::Error,
 };
 
 /// Represents the `xcb::WM_STATE` atom.
@@ -104,7 +105,7 @@ impl Client {
         );
     }
 
-    pub fn set_state(&mut self, conn: &ewmh::Connection, state: ClientState, operation: Operation) -> Result<(), String> {
+    pub fn set_state(&mut self, conn: &ewmh::Connection, state: ClientState, operation: Operation) -> Result<(), Error> {
         match operation {
             Operation::Add => self.add_state(conn, state),
             Operation::Remove => self.remove_state(conn, state),
@@ -115,7 +116,7 @@ impl Client {
                     self.add_state(conn, state)
                 }
             },
-            Operation::Unknown => return Err("Unknown operation".to_owned()),
+            Operation::Unknown => return Err(Error::InvalidOperation),
         }
 
         Ok(())

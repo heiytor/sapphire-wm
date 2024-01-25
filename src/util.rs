@@ -1,5 +1,7 @@
 use xcb_util::ewmh;
 
+use crate::errors::Error;
+
 #[allow(dead_code)]
 pub mod modkeys {
     pub const MODKEY_1: u16 = xcb::MOD_MASK_1 as u16;
@@ -58,3 +60,14 @@ pub fn set_client_tag(conn: &ewmh::Connection, client_id: u32, tag_id: u32) {
     ewmh::set_wm_desktop(conn, client_id, tag_id);
 }
 
+pub fn spawn(process: &str) -> Result<(), Error> {
+    let process: Vec<&str> = process.split_whitespace().collect();
+    let (command, args) = process.split_first().ok_or(Error::Custom("Process called in `spawn` is an empty string.".to_owned()))?;
+
+    std::process::Command::new(command)
+        .args(args)
+        .spawn()
+        .map_err(|e| Error::Custom(e.to_string()))?;
+
+    Ok(())
+}

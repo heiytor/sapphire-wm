@@ -2,17 +2,20 @@ use std::{ffi::CString, u16};
 
 use xcb_util::keysyms;
 
-use crate::event_context::EventContext;
+use crate::{
+    event::EventContext,
+    errors::Error,
+};
 
 pub trait FnOnKeypress: dyn_clone::DynClone {
-    fn call(&self, ctx: EventContext) -> Result<(), String>;
+    fn call(&self, ctx: EventContext) -> Result<(), Error>;
 }
 
 impl<F> FnOnKeypress for F
 where 
-    F: Fn(EventContext) -> Result<(), String> + Clone 
+    F: Fn(EventContext) -> Result<(), Error> + Clone 
 {
-    fn call(&self, ctx: EventContext) -> Result<(), String> {
+    fn call(&self, ctx: EventContext) -> Result<(), Error> {
         self(ctx)
     }
 }
@@ -86,7 +89,7 @@ impl Clone for OnKeypress {
 
 impl OnKeypress {
     #[inline]
-    pub fn call(&self, ctx: EventContext) -> Result<(), String> {
+    pub fn call(&self, ctx: EventContext) -> Result<(), Error> {
         self.callback.call(ctx)
     }
 }

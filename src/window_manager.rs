@@ -1,40 +1,36 @@
-use std::{sync::{Arc, Mutex}, collections::HashMap};
+use std::sync::{Arc, Mutex};
 
-use xcb_util::{ewmh, keysyms, cursor};
+use xcb_util::{ewmh, cursor};
 
 use crate::{
-    clients::{
-        Client,
-        client_action::ClientAction,
-        client_state::ClientState,
-        client_type::ClientType,
-    },
     mouse::{
         Mouse,
         MouseInfo,
+    },
+    util,
+    event::{
+        Event,
+        EventContext,
         MouseEvent,
     },
-    util::{self, Operation},
-    event_context::EventContext,
     config::Config,
-    action::{
-        on_startup::OnStartup,
-        on_keypress::{OnKeypress, KeyCombination}
-    },
+    action::on_startup::OnStartup,
     screen::Screen,
-    handlers,
+    handlers, keyboard::Keyboard,
+    keyboard::KeyCombination,
 };
 
 pub struct WindowManager {
     pub conn: Arc<ewmh::Connection>,
+
     pub mouse: Mouse,
+
+    pub keyboard: Keyboard,
+
     pub config: Arc<Config>,
 
     startup_actions: Vec<OnStartup>,
     
-    // TODO: There is probably a better way to hash the keypress action without a struct for this.
-    keypress_actions: HashMap<KeyCombination, OnKeypress>,
-
     screen: Arc<Mutex<Screen>>,
 }
 
@@ -52,8 +48,8 @@ impl WindowManager {
 
         WindowManager {
             startup_actions: Vec::new(),
-            keypress_actions: HashMap::new(),
             mouse: Mouse::new(conn.clone()),
+            keyboard: Keyboard::new(conn.clone()),
             screen: Arc::new(Mutex::new(screen)),
             config,
             conn,
@@ -69,34 +65,6 @@ impl WindowManager {
         }
     }
 
-    pub fn on_keypress(&mut self, actions: &mut [OnKeypress]) {
-        let key_symbols = keysyms::KeySymbols::new(&self.conn);
-        let screen = util::get_screen(&self.conn);
-
-        for action in actions.iter_mut() {
-            match action.keycode(&key_symbols) {
-                Ok(keycode) => {
-                    self.keypress_actions.insert(action.mask(), action.clone());
-                    // Instruct XCB to send a KEY_PRESS event when the keys are pressed.
-                    xcb::grab_key(
-                        &self.conn,
-                        false,
-                        screen.root(),
-                        // Obtain the combined mask for modkey.
-                        action.modifier(),
-                        keycode,
-                        xcb::GRAB_MODE_ASYNC as u8,
-                        xcb::GRAB_MODE_ASYNC as u8,
-                    );
-                },
-                // TODO: remove panic
-                _ => panic!("Failed to find keycode for char"),
-            };
-        }
-
-        self.conn.flush();
-    }
-
     /// Starts the Sapphire. Binds the registered keys and actions, starts the programs
     /// needed at startup, and initializes the event loop.
     pub fn run(&mut self) {
@@ -107,57 +75,54 @@ impl WindowManager {
             .map_err(|_| panic!("Unable to set cursor icon."));
 
         for action in self.startup_actions.iter() {
-            _ = action.call().map_err(|e| util::notify_error(e));
+            _ = action.call().map_err(|e| util::notify_error(e.to_string()));
         }
 
         self.conn.flush();
 
         loop {
-            if let Some(event) = self.conn.wait_for_event() {
-                self.handle(event);
+            if let Some(e) = self.conn.wait_for_event() {
+                self.handle(e);
             }
         }
     }
 }
 
 impl WindowManager {
-    pub(self) fn handle(&self, event: xcb::GenericEvent) {
-        // println!["event_type {}", event.response_type() & !0x80];
+    fn handle(&self, e: xcb::GenericEvent) {
+        // let event_type = e.response_type() & !0x80;
+        let ev = Event::from(e.response_type());
+        log::trace!("event received. event_type={}", ev);
+
         let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
 
-        // TODO: every event need to receive an EventContext
-        match event.response_type() & !0x80 {
-            xcb::CLIENT_MESSAGE => {
-                let e: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&event) };
+        match ev {
+            Event::ClientMessage => {
+                let e: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_client_message(e, ctx);
             },
-            xcb::CONFIGURE_REQUEST => {
-                let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&event) };
+            Event::ConfigureRequest => {
+                let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_configure_request(e, ctx);
             },
-            xcb::MAP_REQUEST => {
-                let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&event) };
-                _ = handlers::on_map_request(e, ctx);
+            Event::MapRequest => {
+                let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&e) };
+                _ = handlers::on_map_request(ctx, e);
             },
-            xcb::DESTROY_NOTIFY => {
-                let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&event) };
+            Event::DestroyNotify => {
+                let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_destroy_notify(e, ctx);
             }
-            xcb::KEY_PRESS => {
-                let event: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&event) };
+            Event::KeyPress => {
+                let e: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
 
-                let mask = KeyCombination { keycode: event.detail(), modifier: event.state() }; 
-                match self.keypress_actions.get(&mask) {
-                    Some(action) => {
-                        let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
-
-                        _ = action.call(ctx).map_err(|e| util::notify_error(e));
-                    },
-                    None => {},
-                };
+                let mask = KeyCombination { keycode: e.detail(), modifier: e.state() }; 
+                _ = self.keyboard
+                    .trigger(ctx, mask)
+                    .map_err(|e| util::notify_error(e.to_string()));
             },
-            xcb::BUTTON_PRESS => {
-                let e: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(&event) };
+            Event::ButtonPress => {
+                let e: &xcb::ButtonPressEvent = unsafe { xcb::cast_event(&e) };
 
                 // We need to free the mouse after retrie the event info.
                 // See: https://www.x.org/releases/current/doc/man/man3/xcb_allow_events.3.xhtml
@@ -165,9 +130,10 @@ impl WindowManager {
                 self.conn.flush();
 
                 let inf = MouseInfo::new(e.child(), e.state(), (e.event_x(), e.event_y()));
-                let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
 
-                _ = self.mouse.trigger_with(MouseEvent::Click, ctx, inf).map_err(|e| util::notify_error(e));
+                _ = self.mouse
+                    .trigger_with(MouseEvent::Click, ctx, inf)
+                    .map_err(|e| util::notify_error(e.to_string()));
             },
             _ => {
                 // println!["unexpected event"];

@@ -1,30 +1,22 @@
-use core::fmt;
+mod callback;
+
 use std::sync::Arc;
 
 use xcb_util::ewmh;
 
-use crate::{util, clients::ClientID, event_context::EventContext};
+use crate::{
+    util,
+    event::{
+        EventContext,
+        MouseEvent,
+    },
+    errors::Error,
+};
 
-/// Represents the events that the window manager should listen for mouse actions.
-#[derive(PartialEq)]
-pub enum MouseEvent {
-    /// Represents the `xcb::EVENT_MASK_BUTTON_PRESS` mask, which is globally grabbed on the `screen.root()`
-    /// without any modifiers. It sends an `xcb::BUTTON_PRESS` event and is used to set focus on the window when clicked.
-    /// This event blocks all other clients from receiving mouse events, and the window manager
-    /// should allow the `xcb::ALLOW_REPLAY_POINTER` event to release it.
-    ///
-    /// TODO:
-    /// Change the event mask to `xcb::EVENT_MASK_BUTTON_RELEASE`
-    Click,
-}
-
-impl fmt::Display for MouseEvent {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MouseEvent::Click => write![f, "click mode"],
-        }
-    }
-}
+pub use crate::mouse::callback::{
+    FnOnClick,  
+    MouseInfo,
+};
 
 pub struct Mouse {
     conn: Arc<ewmh::Connection>,
@@ -58,14 +50,9 @@ impl Mouse {
     }
 
     /// Listens for the specified mouse event and configures the window manager accordingly.
-    ///
-    /// # Returns
-    ///
-    /// Returns `Ok(())` if the event was successfully registered, or `Err` if the event is
-    /// already being listened to.
-    fn listen_event(&mut self, e: MouseEvent) -> Result<(), String> {
+    fn listen_event(&mut self, e: MouseEvent) {
         if self.has_event(&e) {
-            return Err(format!["mouse already has {}", e])
+            return
         }
 
         match e {
@@ -86,19 +73,19 @@ impl Mouse {
         };
     
         self.events.push(e);
-
-        Ok(())
     }
 
-    pub fn on(&mut self, e: MouseEvent, callback: Box<dyn FnOnClick>) {
+    /// Register a callback `cb` to be executed when the event `e` is triggered.
+    pub fn on(&mut self, e: MouseEvent, cb: Box<dyn FnOnClick>) {
         if !self.has_event(&e) {
-            _ = self.listen_event(e);
+            self.listen_event(e);
         }
 
-        self.on_click.push(dyn_clone::clone_box(&*callback))
+        self.on_click.push(dyn_clone::clone_box(&*cb));
     }
 
-    pub fn trigger_with(&self, e: MouseEvent, ctx: EventContext, info: MouseInfo) -> Result<(), String> {
+    /// Triggers the event `e` with the provided context and information.
+    pub fn trigger_with(&self, e: MouseEvent, ctx: EventContext, info: MouseInfo) -> Result<(), Error> {
         match e {
             MouseEvent::Click => {
                 for cb in self.on_click.iter() {
@@ -108,55 +95,5 @@ impl Mouse {
         }
 
         Ok(())
-    }
-}
-
-pub trait FnOnClick: dyn_clone::DynClone {
-    fn call(&self, ctx: EventContext, info: MouseInfo) -> Result<(), String>;
-}
-
-impl<F> FnOnClick for F
-where 
-    F: Fn(EventContext, MouseInfo) -> Result<(), String>  + Clone
-{
-    fn call(&self, ctx: EventContext, info: MouseInfo) -> Result<(), String> {
-        self(ctx, info)
-    }
-}
-
-/// Represents information about mouse in events.
-#[derive(Clone)]
-pub struct MouseInfo {
-    /// The client's ID where the mouse was pressed.
-    pub c_id: ClientID,
-
-    /// The x position of where the mouse was pressed. 0 is top-left.
-    pub x: i16,
-
-    /// The y position of where the mouse was pressed. 0 is top-left.
-    pub y: i16,
-
-    /// The mask of modifiers when the mouse was pressed. For example:
-    /// ```
-    /// // When pressing Mouse + Shift
-    /// assert_eq!(modifier, 1);
-    ///
-    /// // When pressing Mouse + Shift + Ctrl
-    /// assert_eq!(modifier, 1 | 4);
-    /// ```
-    ///
-    /// You can also use `util::modkeys` to get the modifiers constants.
-    pub modifier: u16,
-}
-
-impl MouseInfo {
-    /// Creates a new `MouseInfo`. `Pos` is a tuple with (x, y) order.
-    pub fn new(c_id: ClientID, modifier: u16, pos: (i16, i16)) -> Self {
-        Self {
-            c_id,
-            x: pos.0,
-            y: pos.1,
-            modifier,
-        }
     }
 }

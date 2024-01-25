@@ -1,12 +1,14 @@
+use crate::errors::Error;
+
 pub trait FnOnStartup: dyn_clone::DynClone {
-    fn call(&self) -> Result<(), String>;
+    fn call(&self) -> Result<(), Error>;
 }
 
 impl<F> FnOnStartup for F
 where 
-    F: Fn() -> Result<(), String> + Clone 
+    F: Fn() -> Result<(), Error> + Clone 
 {
-    fn call(&self) -> Result<(), String> {
+    fn call(&self) -> Result<(), Error> {
         self()
     }
 }
@@ -34,7 +36,7 @@ impl Clone for OnStartup {
 
 impl OnStartup {
     #[inline]
-    pub fn call(&self) -> Result<(), String> {
+    pub fn call(&self) -> Result<(), Error> {
         self.callback.call()
     }
 }

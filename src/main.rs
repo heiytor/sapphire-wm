@@ -1,29 +1,29 @@
 mod action;
-mod clients;
+mod client;
 mod config;
 mod errors;
-mod event_context;
 mod handlers;
 mod mouse;
+mod keyboard;
 mod window_manager;
 mod screen;
 mod tag;
 mod util;
+mod event;
 
+use keyboard::Keybinding;
 use mouse::MouseInfo;
 
 use crate::{
-    action::{
-        on_startup::OnStartup,
-        on_keypress::OnKeypress,
-    },
-    clients::{
-        client_action::ClientAction,
-        client_state::ClientState,
+    client::{
+        ClientAction,
+        ClientState,
     },
     config::Config,
-    event_context::EventContext,
-    mouse::MouseEvent,
+    event::{
+        EventContext,
+        MouseEvent,
+    },
     util::{
         modkeys,
         Operation,
@@ -33,6 +33,8 @@ use crate::{
 };
 
 fn main() {
+    env_logger::init();
+
     let mut config = Config::default();
 
     let tags = vec![
@@ -55,158 +57,208 @@ fn main() {
 
     let mut wm = WindowManager::new(config);
 
-    // Allows focus on click.
+    wm.on_startup(&[
+        // OnStartup::new(Box::new(|| {
+        //     util::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")
+        // })),
+        // OnStartup::new(Box::new(|| {
+        //     util::spawn("polybar")
+        //     // util::spawn("/home/heitor/.config/polybar/launch.sh --hack")
+        //     // util::spawn("/home/heitor/.config/polybar/launch.sh --blocks")
+        // })),
+        // OnStartup::new(Box::new(|| {
+        //     util::spawn("picom") // not working
+        // })),
+    ]);
+
+    let modkey = modkeys::MODKEY_SHIFT;
+
+    wm.keyboard.append_keybindings(&[
+        Keybinding::new()
+            .on(&[modkey], "s")
+            .description("Start browser")
+            .execute(Box::new(|_| util::spawn("google-chrome-stable"))),
+
+        Keybinding::new()
+            .on(&[modkey], "a")
+            .description("Start terminal")
+            .execute(Box::new(|_| util::spawn("alacritty"))),
+
+        Keybinding::new()
+            .on(&[modkey], "Tag")
+            .description("Start rofi")
+            .execute(Box::new(|_| util::spawn("rofi -show drun"))),
+
+        Keybinding::new()
+            .on(&[modkey], "End")
+            .description("Kill the focused client on the current tag.")
+            .execute(Box::new(|ctx: EventContext| {
+                let screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag()?;
+                if let Ok(c) = tag.get_focused_client() {
+                    c.kill(&ctx.conn);
+                }
+
+                Ok(())
+            })),
+
+        Keybinding::new()
+            .on(&[modkey], "End")
+            .description("Kill the focused client on the current tag.")
+            .execute(Box::new(|ctx: EventContext| {
+                let screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag()?;
+                if let Ok(c) = tag.get_focused_client() {
+                    c.kill(&ctx.conn);
+                }
+
+                Ok(())
+            })),
+    
+        Keybinding::new()
+            .on(&[modkey], "h")
+            .description("Move focus to left.")
+            .execute(Box::new(|ctx: EventContext| {
+                let mut screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag_mut()?;
+
+                _ = tag.walk(1, Dir::Left, |c| c.is_controlled())
+                    .map(|wid| tag.set_focused_client(wid));
+
+                Ok(())
+            })),
+
+        Keybinding::new()
+            .on(&[modkey], "l")
+            .description("Move focus to right.")
+            .execute(Box::new(|ctx: EventContext| {
+                let mut screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag_mut()?;
+
+                _ = tag.walk(1, Dir::Right, |c| c.is_controlled())
+                    .map(|wid| tag.set_focused_client(wid));
+
+                Ok(())
+            })),
+
+        Keybinding::new()
+            .on(&[modkey], "Return")
+            .description("Swaps the current client on tag to the master window.")
+            .execute(Box::new(|ctx: EventContext| {
+                let mut screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag_mut()?;
+                let tag_id = tag.id;
+
+                if let (Ok(c1), Ok(c2)) = (tag.get_focused_client(), tag.get_first_client_when(|c| c.is_controlled())) {
+                    _ = tag.swap(c1.id, c2.id);
+                    _ = screen.refresh_tag(tag_id);
+                }
+
+                Ok(())
+            })),
+
+        Keybinding::new()
+            .on(&[modkey], "f")
+            .description("Toggle fullscreen mode for the currently focused client.")
+            .execute(Box::new(|ctx: EventContext| {
+                let mut screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag_mut()?;
+                let tag_id = tag.id;
+
+                if let Ok(c) = tag.get_focused_client_mut() {
+                    if !c.allows_action(&ClientAction::Fullscreen) {
+                        return Ok(())
+                    }
+
+                    c.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
+                    _ = screen.refresh_tag(tag_id);
+                }
+
+                Ok(())
+            })),
+
+        Keybinding::new()
+            .on(&[modkey], "m")
+            .description("Toggle maximized mode for the currently focused client.")
+            .execute(Box::new(|ctx: EventContext| {
+                let mut screen = ctx.screen.lock().unwrap();
+
+                let tag = screen.get_focused_tag_mut()?;
+                let tag_id = tag.id;
+
+                if let Ok(c) = tag.get_focused_client_mut() {
+                    if !c.allows_action(&ClientAction::Maximize) {
+                        return Ok(())
+                    }
+
+                    c.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
+                    _ = screen.refresh_tag(tag_id);
+                }
+
+                Ok(())
+            })),
+    ]);
+
+    // Bind MODKEY + i to desktop[i].
+    for id in 0..tags.len() as u32 {
+        if id > 8 {
+            break
+        }
+
+        let key = (id+1).to_string();
+
+        wm.keyboard.append_keybindings(&[
+            Keybinding::new()
+                .on(&[modkey], key.as_str())
+                .description("View tag[i].")
+                .execute(Box::new(move |ctx: EventContext| {
+                    let mut screen = ctx.screen.lock().unwrap();
+
+                    let curr_tag_id = screen.get_focused_tag().map(|t| t.id)?;
+                    if id != curr_tag_id {
+                        _ = screen.view_tag(id)?;
+                    }
+
+                    Ok(())
+                })),
+
+            Keybinding::new()
+                .on(&[modkey, modkeys::MODKEY_CONTROL], key.as_str())
+                .description("Move focused client to tag [i].")
+                .execute(Box::new(move |ctx: EventContext| {
+                    let mut screen = ctx.screen.lock().unwrap();
+
+                    let curr_tag_id = screen.get_focused_tag().map(|t| t.id)?;
+                    if id != curr_tag_id {
+                        _ = screen.move_focused_client(curr_tag_id, id)?;
+                        // Optionally, follow
+                        // _ = screen.view_tag(id).map_err(|e| e.to_string())?;
+                    }
+
+                    Ok(())
+                })),
+        ]);
+    }
+
+    // Enables focus on click.
     wm.mouse.on(MouseEvent::Click, Box::new(|ctx: EventContext, info: MouseInfo| {
         let mut screen = ctx.screen.lock().unwrap();
 
-        let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
+        let tag = screen.get_focused_tag_mut()?;
+        let focus_id = tag.get_focused_client().map_or(0, |c| c.id);
 
-        if tag.focused_wid != info.c_id {
+        if focus_id != info.c_id {
             tag.set_focused_client_if(info.c_id, |c| c.is_controlled());
         }
 
         Ok(())
     }));
-
-    wm.on_startup(&[
-        // OnStartup::new(OnStartup::spawn("picom")), // not working
-        // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --blocks")),
-        // OnStartup::new(OnStartup::spawn("/home/heitor/.config/polybar/launch.sh --hack")),
-        OnStartup::new(OnStartup::spawn("polybar")),
-        OnStartup::new(OnStartup::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")),
-    ]);
-
-    let modkey = modkeys::MODKEY_SHIFT;
-
-    // TODO: abstract screen
-    let mut on_keypress_actions = vec![
-        OnKeypress::new(&[modkey], "a",  Box::new(|ctx: EventContext| {
-            ctx.spawn("alacritty")
-        })),
-
-        OnKeypress::new(&[modkey], "s",  Box::new(|ctx: EventContext| {
-            ctx.spawn("google-chrome-stable")
-        })),
-
-        OnKeypress::new(&[modkey], "Tab",  Box::new(|ctx: EventContext| {
-            ctx.spawn("rofi -show drun")
-        })),
-
-        // Kill the focused client on the current tag.
-        OnKeypress::new(&[modkey], "End", Box::new(|ctx: EventContext| {
-            let screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-            if let Ok(c) = tag.get_focused_client() {
-                c.kill(&ctx.conn);
-            }
-
-            Ok(())
-        })),
-
-        // Move focus to left.
-        OnKeypress::new(&[modkey], "h", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-
-            _ = tag.walk(1, Dir::Left, |c| c.is_controlled())
-                .map(|wid| tag.set_focused_client(wid));
-
-            Ok(())
-        })),
-
-        // Move focus to right.
-        OnKeypress::new(&[modkey], "l", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-
-            _ = tag.walk(1, Dir::Right, |c| c.is_controlled())
-                .map(|wid| tag.set_focused_client(wid));
-
-            Ok(())
-        })),
-
-        // Swaps the current client on tag to the master window.
-        OnKeypress::new(&[modkey], "Return", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-
-            if let (Ok(c1), Ok(c2)) = (tag.get_focused_client(), tag.get_first_client_when(|c| c.is_controlled())) {
-                _ = tag.swap(c1.id, c2.id);
-                _ = screen.refresh_tag(ctx.curr_tag_id());
-            }
-
-            Ok(())
-        })),
-
-        // Toggle fullscreen mode for the currently focused client.
-        OnKeypress::new(&[modkey], "f", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-
-            if let Ok(c) = tag.get_focused_client_mut() {
-                if !c.allows_action(&ClientAction::Fullscreen) {
-                    return Ok(())
-                }
-
-                c.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-                _ = screen.refresh_tag(ctx.curr_tag_id());
-            }
-
-            Ok(())
-        })),
-
-        // Toggle maximized mode for the currently focused client.
-        OnKeypress::new(&[modkey], "m", Box::new(|ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            let tag = screen.get_tag_mut(ctx.curr_tag_id()).map_err(|e| e.to_string())?;
-
-            if let Ok(c) = tag.get_focused_client_mut() {
-                if !c.allows_action(&ClientAction::Maximize) {
-                    return Ok(())
-                }
-
-                c.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-                _ = screen.refresh_tag(ctx.curr_tag_id());
-            }
-
-            Ok(())
-        })),
-    ];
-
-    
-    // Bind MODKEY + i to desktop[i].
-    for id in 0..tags.len() as u32 {
-        let key = (id+1).to_string();
-        on_keypress_actions.push(OnKeypress::new(&[modkey], key.as_str(), Box::new(move |ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            if id != ctx.curr_tag_id() {
-                _ = screen.view_tag(id).map_err(|e| e.to_string())?;
-            }
-
-            Ok(())
-        })));
-
-        on_keypress_actions.push(OnKeypress::new(&[modkey, modkeys::MODKEY_CONTROL], key.as_str(), Box::new(move |ctx: EventContext| {
-            let mut screen = ctx.screen.lock().unwrap();
-
-            if id != ctx.curr_tag_id() {
-                _ = screen.move_focused_client(ctx.curr_tag_id(), id).map_err(|e| e.to_string())?;
-                // Optionally, follow
-                // _ = screen.view_tag(id).map_err(|e| e.to_string())?;
-            }
-
-            Ok(())
-        })));
-    }
-
-    wm.on_keypress(&mut on_keypress_actions);
 
     wm.run();
 }

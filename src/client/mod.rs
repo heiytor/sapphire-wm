@@ -1,17 +1,17 @@
-pub mod client_action;
-pub mod client_state;
-pub mod client_type;
-pub mod util;
+mod action;
+mod state;
+mod kind;
+mod util;
 
 use xcb_util::ewmh;
 
-use crate::clients::{
-    client_action::ClientAction,
-    client_state::ClientState,
-    client_type::ClientType,
+pub use crate::client::{
+    action::ClientAction,
+    state::ClientState,
+    kind::ClientType,
+    util::ClientPadding,
 };
 
-use self::util::ClientPadding;
 
 /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
 /// `event.event()` in XCB events.

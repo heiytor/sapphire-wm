@@ -8,7 +8,7 @@ use crate::{
     },
     config::Config,
     errors::Error,
-    clients::Client,
+    client::Client,
     util,
     screen::utils::redraw,
 };
@@ -110,7 +110,10 @@ impl Screen {
         ewmh::set_desktop_names(&conn, id, tags.iter().map(|d| d.alias.as_ref()));
 
         // Create the sticky tag.
-        tags.push(Tag::new((tags.len()-1) as u32, "sticky_clients", conn.clone()));
+        // Since the clients contained in this tag will be shown in all other tags the ID of the
+        // tag must be set to the maximum 32-bit number.
+        // Reference: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142872912
+        tags.push(Tag::new(0xFFFFFFFF, "sticky_clients", conn.clone()));
 
         Self {
             id,
@@ -165,7 +168,7 @@ impl Screen {
 
     /// Returns a immutable reference to the focused tag or `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
-    pub fn get_focused_tag(&mut self) -> Result<&Tag, Error> {
+    pub fn get_focused_tag(&self) -> Result<&Tag, Error> {
         let id = self.focused_tag_id;
         self.tags.iter().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
     }
@@ -239,7 +242,7 @@ impl Screen {
         let client_id = client.id;
 
         s_tag.unmanage_client(client_id);
-    
+
         // Set the most recent client as input focus on the source tag if any.
         if let Ok(c) = s_tag.get_first_client_when(|c| c.is_controlled()) {
             s_tag.set_focused_client(c.id);

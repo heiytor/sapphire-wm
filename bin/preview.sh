@@ -5,6 +5,7 @@ set -e
 XEPHYR=$(whereis -b Xephyr | cut -f2 -d' ')
 DIR=$(dirname "$(readlink -f "$0")")
 
+export RUST_LOG="trace"
 cargo build
 
 xinit "$DIR/xinitrc" -- \

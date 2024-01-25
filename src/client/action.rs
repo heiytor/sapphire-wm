@@ -1,14 +1,26 @@
 use xcb_util::ewmh;
 
-use crate::clients::Client;
+use crate::client::Client;
 
+/// Represents an ATOM that can be placed in the `_NET_WM_ALLOWED_ACTIONS` list.
 #[derive(Clone, PartialEq, Debug)]
 pub enum ClientAction {
+    /// Indicates that a client can be in fullscreen mode.
     Fullscreen,
+
+    /// Indicates that a client can be maximized.
     Maximize,
+
+    /// Indicates that a client can change its tag.
     ChangeTag,
+
+    /// Indicates that a client can be resized.
     Resize,
+
+    /// Indicates that a client can be moved.
     Move,
+
+    /// Indicates that a client can be closed.
     Close,
 }
 

@@ -1,19 +1,18 @@
 use xcb_util::ewmh;
 
 use crate::{
-    event_context::EventContext,
-    clients::{
-        client_type::ClientType,
+    event::EventContext,
+    client::{
         Client,
-        client_action::ClientAction, client_state::ClientState,
+        ClientAction,
+        ClientState,
+        ClientType,
     },
     util::{self, Operation},
     errors::Error,
 };
 
-pub fn on_map_request(e: &xcb::MapRequestEvent, ctx: EventContext) -> Result<(), Error> {
-    xcb::map_window(&ctx.conn, e.window());
-
+pub fn on_map_request(ctx: EventContext, e: &xcb::MapRequestEvent) -> Result<(), Error> {
     let mut screen = ctx.screen.lock().unwrap();
 
     let mut r#type = ClientType::Normal;
@@ -26,17 +25,19 @@ pub fn on_map_request(e: &xcb::MapRequestEvent, ctx: EventContext) -> Result<(),
     // screen independently of the current tag.
     let tag = match r#type {
         ClientType::Dock => screen.sticky_tag_mut(),
-        _ => screen.get_focused_tag_mut().unwrap(), // TODO: remove this unwrap
+        _ => screen.get_focused_tag_mut()?,
     };
-    let tag_id = tag.id;
 
+    xcb::map_window(&ctx.conn, e.window());
+
+    // If the client has already been managed by Sapphire, we only need to map.
     if tag.contains_client(e.window()) {
         return Ok(())
     }
 
     let mut client = Client::new(e.window());
     client.allow_action(&ctx.conn, ClientAction::Close);
-    client.set_type(&ctx.conn, r#type, tag.id);
+    client.set_type(&ctx.conn, r#type);
 
     // Retrieve some informations about the client
     if let Ok(pid) = ewmh::get_wm_pid(&ctx.conn, e.window()).get_reply() {
@@ -54,9 +55,11 @@ pub fn on_map_request(e: &xcb::MapRequestEvent, ctx: EventContext) -> Result<(),
         client.padding.right = strut.right;
     };
 
+    util::set_client_tag(&ctx.conn, client.id, tag.id);
     tag.manage_client(client);
     tag.set_focused_client_if(e.window(), |c| c.is_controlled());
 
+    let tag_id = tag.id;
     _ = screen.refresh_tag(tag_id);
     screen.refresh();
 

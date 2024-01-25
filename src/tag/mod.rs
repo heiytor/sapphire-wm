@@ -3,10 +3,10 @@ use std::{sync::Arc, collections::VecDeque};
 use xcb_util::ewmh;
 
 use crate::{
-    clients::{
+    client::{
         Client,
+        ClientState,
         ClientID,
-        client_state::ClientState,
     },
     errors::Error,
 };

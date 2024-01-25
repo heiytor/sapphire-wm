@@ -2,9 +2,9 @@ use xcb_util::ewmh;
 
 use crate::{
     config::Config,
-    clients::{
+    client::{
         Client,
-        client_state::ClientState,
+        ClientState,
     }, 
     util,
 };
