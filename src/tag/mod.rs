@@ -8,7 +8,7 @@ use crate::{
         ClientState,
         ClientID,
     },
-    errors::Error,
+    errors::Error, layout::Layout,
 };
 
 pub enum Dir {
@@ -19,14 +19,18 @@ pub enum Dir {
 pub type TagID = u32;
 
 pub struct Tag {
-    pub id: TagID,
-    
-    pub alias: String,
-
+    /// EWMH | XCB connection.
     conn: Arc<ewmh::Connection>,
 
-    /// 0 when no client is focused
-    pub focused_wid: ClientID,
+    /// Specifies the tag that XCB must use in certain operations. It starts at 0 and is
+    /// automatically incremented.
+    pub id: TagID,
+    
+    /// The name of the tag, used to define "_NET_DESKTOP_NAMES".
+    pub alias: String,
+
+    /// ID of the currently focused client. It is 0 when no client is focused.
+    focused_cid: ClientID,
 
     clients: VecDeque<Client>,
 }
@@ -37,7 +41,7 @@ impl Tag {
             id,
             conn,
             alias: alias.to_owned(),
-            focused_wid: 0,
+            focused_cid: 0,
             clients: VecDeque::new(),
         }
     }
@@ -93,16 +97,16 @@ impl Tag {
     pub fn get_focused_client(&self) -> Result<&Client, Error> {
         self.clients
             .iter()
-            .find(|c| c.id == self.focused_wid)
-            .ok_or(Error::ClientNotFound(self.focused_wid))
+            .find(|c| c.id == self.focused_cid)
+            .ok_or(Error::ClientNotFound(self.focused_cid))
     }
 
     /// Retrieves a mutable reference to the focused client.
     pub fn get_focused_client_mut(&mut self) -> Result<&mut Client, Error> {
         self.clients
             .iter_mut()
-            .find(|c| c.id == self.focused_wid)
-            .ok_or(Error::ClientNotFound(self.focused_wid))
+            .find(|c| c.id == self.focused_cid)
+            .ok_or(Error::ClientNotFound(self.focused_cid))
     }
 
     /// Sets focus on a client with the specified window ID, updating the border to `active_color`
@@ -125,10 +129,10 @@ impl Tag {
             // Sets the border of the previously focused client to an inactive state, if applicable.
             self.clients
                 .iter()
-                .find(|c| c.id == self.focused_wid)
+                .find(|c| c.id == self.focused_cid)
                 .map(|c| c.set_border(&self.conn, 0xFFF200));
             
-            self.focused_wid = c.id;
+            self.focused_cid = c.id;
             c.set_input_focus(&self.conn);
             c.set_border(&self.conn, 0xC800FF);
 
@@ -177,7 +181,7 @@ impl Tag {
         let find_idx = |std_idx| -> usize {
             self.clients
                 .iter()
-                .position(|c| c.id == self.focused_wid)
+                .position(|c| c.id == self.focused_cid)
                 .unwrap_or(std_idx)
         };
 
@@ -227,4 +231,44 @@ impl Tag {
             _ => None,
         }
     }
+}
+
+pub fn resize_tag<T>(tag: &mut Tag, layout: &T, sticky: &Vec<Client>)
+where
+    T: Layout
+{
+    let normal_clients: &mut Vec<&mut Client> = &mut tag.clients
+        .iter_mut()
+        .filter(|c| c.last_state() != &ClientState::Hidden && c.is_controlled())
+        .collect();
+
+    layout.resize_clients(normal_clients);
+
+    tag.clients
+        .iter_mut()
+        .filter(|c| {
+            c.last_state() == &ClientState::Fullscreen && c.is_controlled()
+        })
+    .for_each(|c| {
+        // client.rect.border = 0;
+        // client.rect.w = available_w;
+        // client.rect.h = available_h;
+        // client.rect.x = padding_left;
+        // client.rect.y = padding_top;
+    });
+
+    tag.clients
+        .iter_mut()
+        .filter(|c| {
+            c.last_state() == &ClientState::Fullscreen && c.is_controlled()
+        })
+    .for_each(|c| {
+        // c.rect.border = 0;
+        // c.rect.w = screen_w;
+        // c.rect.h = screen_h;
+        // c.rect.x = 0;
+        // c.rect.y = 0;
+    });
+
+    tag.clients.iter().for_each(|c| log::info!("x{} y{}", c.rect.x, c.rect.y))
 }

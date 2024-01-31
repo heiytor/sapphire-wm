@@ -2,6 +2,8 @@ mod context;
 
 use std::fmt;
 
+use xcb_util::ewmh;
+
 pub use crate::event::context::EventContext;
 
 pub enum Event {
@@ -145,6 +147,44 @@ impl fmt::Display for MouseEvent {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             MouseEvent::Click => write!(f, "MouseClick"),
+        }
+    }
+}
+
+/// Represents a message received from a client. Unsupported messages are always mapped to
+/// `ClientMessage::NotSupported`.
+pub enum ClientMessage {
+    /// Represents an unsupported client message.
+    NotSupported,
+    
+    /// Specifies when the SapphireWM should view another virtual desktop.
+    ///
+    /// > Refer to [_NET_CURRENT_DESKTOP](https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm45912237425008)
+    ViewDesktop,
+    
+    /// Specifies when the SapphireWM should change the state of a client.
+    ///
+    /// > Refer to [_NET_WM_DESKTOP](https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142858672)
+    ChangeState,
+}
+
+impl ClientMessage {
+    /// Converts a `xcb::Atom` to a `ClientMessage`.
+    pub fn from_atom(conn: &ewmh::Connection, type_: xcb::Atom) -> Self {
+        match type_ {
+            t if t == conn.CURRENT_DESKTOP() => Self::ViewDesktop,
+            t if t == conn.WM_STATE() => Self::ChangeState,
+            _ => Self::NotSupported,
+        }
+    }
+}
+
+impl fmt::Display for ClientMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotSupported => write!(f, "NotSupported"),
+            Self::ViewDesktop => write!(f, "ChangeDesktop"),
+            Self::ChangeState => write!(f, "ChangeState"),
         }
     }
 }

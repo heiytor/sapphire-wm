@@ -21,6 +21,20 @@ pub enum Operation {
     Unknown,
 }
 
+impl<T> From<T> for Operation
+where
+    T: Into<ewmh::StateAction>
+{
+    fn from(action: T) -> Self {
+        match action.into() {
+            ewmh::STATE_ADD => Operation::Add,
+            ewmh::STATE_REMOVE => Operation::Remove,
+            ewmh::STATE_TOGGLE => Operation::Toggle,
+            _ => Operation::Unknown,
+        }
+    }
+}
+
 /// NOTE:
 /// For now, sapphire does not support multiple monitors and due to rust's
 /// lifetimes and how xcb::Screen needs conn, it's really hard to use screen
@@ -41,13 +55,14 @@ pub fn disable_input_focus(conn: &xcb::Connection) {
         xcb::INPUT_FOCUS_POINTER_ROOT,
         xcb::CURRENT_TIME,
     );
+    // TODO: send a None value to active winodw
 }
 
 pub fn notify_error(e: String) {
-    println!("WM error: {}", e);
+    log::error!("WM error: {}", e);
 }
 
-#[inline]
+#[inline(always)]
 pub fn window_has_type(conn: &ewmh::Connection, wid: u32, atom: xcb::Atom) -> bool {
     xcb_util::ewmh::get_wm_window_type(conn, wid)
         .get_reply()
@@ -70,4 +85,18 @@ pub fn spawn(process: &str) -> Result<(), Error> {
         .map_err(|e| Error::Custom(e.to_string()))?;
 
     Ok(())
+}
+
+/// Retrieve the atom with name `name`. Returns `xcb::NONE` when the atom does not exists.
+#[inline(always)]
+pub fn get_atom(conn: &ewmh::Connection, name: &str) -> u32 {
+    xcb::intern_atom(conn, false, name)
+        .get_reply()
+        .map_or_else(
+            |_| {
+                log::warn!("Unable to get the atom. atom={}", name);
+                xcb::NONE
+            },
+            |a| a.atom(),
+        )
 }

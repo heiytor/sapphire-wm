@@ -10,13 +10,15 @@ use crate::{
     errors::Error,
     client::Client,
     util,
-    screen::utils::redraw,
+    screen::utils::redraw, layout::LayoutTile,
 };
 
 pub mod utils;
 
 pub struct Screen {
     pub id: i32,
+
+    pub root: u32,
 
     /// ID of the currently focused tag. Retrieve the current tag using `Self::get_focused_tag[mut]()`,
     /// as the ID may point to an non existent tag.
@@ -41,9 +43,7 @@ pub struct Screen {
 }
 
 impl Screen {
-    pub fn new(id: i32, conn: Arc<ewmh::Connection>, config: Arc<Config>) -> Self {
-        let screen = conn.get_setup().roots().nth(id as usize).unwrap();
-
+    pub fn new(conn: Arc<ewmh::Connection>, id: i32, screen: xcb::Screen, config: Arc<Config>) -> Self {
         if let Err(cookie) = xcb::change_window_attributes_checked(
             &conn,
             screen.root(),
@@ -117,6 +117,7 @@ impl Screen {
 
         Self {
             id,
+            root: screen.root(),
             conn,
             tags,
             config,
@@ -182,14 +183,22 @@ impl Screen {
 
     /// Readjust the layout of the tag with ID `id`. Returns `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
-    pub fn refresh_tag(&self, id: TagID) -> Result<(), Error> {
-        let tag = self.get_tag(id)?;
+    pub fn refresh_tag(&mut self, id: TagID) -> Result<(), Error> {
+        let mut sticky = self.sticky_tag_mut().clone_clients();
 
+        let tag = self.get_tag_mut(id)?;
+        crate::tag::resize_tag(tag, &LayoutTile::new(), &sticky);
+        
+        sticky.extend(self.get_tag(id).unwrap().clone_clients());
+    
         // Ensures that the sticky clients are drawn.
-        let mut clients: Vec<Client> = self.sticky_tag().clone_clients();
-        clients.extend(tag.clone_clients());
+        // let clients = tag.clone_clients();
+        // let mut clients: Vec<Client> = self.sticky_tag().clone_clients();
+        // clients.extend(self.get_tag(id).unwrap().clone_clients());
 
-        redraw(&self.conn, clients, &self.config);
+        redraw(&self.conn, sticky, &self.config);
+        self.refresh();
+
         Ok(())
     }
 
@@ -197,6 +206,10 @@ impl Screen {
     /// client on the tag, if any. Returns `Error::TagNotFound(id)` when the provided ID does not
     /// exist. 
     pub fn view_tag(&mut self, id: u32) -> Result<(), Error> {
+        if self.get_focused_tag().is_ok_and(|t| t.id == id) {
+            return Ok(())
+        }
+
         let conn = self.conn.clone();
 
         let tag = self.get_tag_mut(id)?;
@@ -211,7 +224,10 @@ impl Screen {
 
         // Before updating the ID of the focused tag, we hide all visible clients on the current
         // focused tag, if any.
-        if let Ok(tag) = self.get_tag(self.focused_tag_id) {
+        //
+        // This follows the second approach outlined in the "Virtual Desktop Implementation note" (https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm45912241712208)
+        // of the EWMH.
+        if let Ok(tag) = self.get_focused_tag() {
             tag.unmap();
         }
 
@@ -266,18 +282,18 @@ impl Screen {
     /// Refreshes the "_NET_CLIENT_LIST" with the current list of clients in all tags.
     pub fn refresh(&self) {
         // TODO: make it less verbose and more performatic
-        // let mut clients: VecDeque<&Client> = VecDeque::new();
-        // for t in self.tags.iter() {
-        //     let b = t.clone_clients();
-        //     for c in b.iter() {
-        //         clients.push_front(c)
-        //     }
-        // }
-        //
-        // ewmh::set_client_list(
-        //     &self.conn,
-        //     0,
-        //     &clients.iter().map(|c| c.id).collect::<Vec<u32>>(),
-        // );
+        let mut clients: Vec<Client> = Vec::new();
+        for t in self.tags.iter() {
+            let b = t.clone_clients();
+            for c in b.into_iter() {
+                clients.push(c);
+            }
+        }
+
+        ewmh::set_client_list(
+            &self.conn,
+            0,
+            &clients.iter().map(|c| c.id).collect::<Vec<u32>>(),
+        );
     }
 }

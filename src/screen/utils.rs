@@ -9,6 +9,17 @@ use crate::{
     util,
 };
 
+//  __________   __________
+// |  Master  | |  Window  |
+// |  window  | |          |
+// |          | |          |
+// |          | |__________|
+// |          |  __________
+// |          | |  Window  |
+// |          | |          |
+// |          | |          |
+// |__________| |__________|
+
 pub fn redraw(conn: &ewmh::Connection, clients: Vec<Client>, config: &Config) {
     let border_size = config.border.size;
 

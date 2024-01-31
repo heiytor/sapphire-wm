@@ -3,14 +3,16 @@ mod client;
 mod config;
 mod errors;
 mod handlers;
-mod mouse;
 mod keyboard;
+mod layout;
+mod mouse;
 mod window_manager;
 mod screen;
 mod tag;
 mod util;
 mod event;
 
+use action::on_startup::OnStartup;
 use keyboard::Keybinding;
 use mouse::MouseInfo;
 
@@ -58,14 +60,14 @@ fn main() {
     let mut wm = WindowManager::new(config);
 
     wm.on_startup(&[
-        // OnStartup::new(Box::new(|| {
-        //     util::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")
-        // })),
-        // OnStartup::new(Box::new(|| {
-        //     util::spawn("polybar")
-        //     // util::spawn("/home/heitor/.config/polybar/launch.sh --hack")
-        //     // util::spawn("/home/heitor/.config/polybar/launch.sh --blocks")
-        // })),
+        OnStartup::new(Box::new(|| {
+            util::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")
+        })),
+        OnStartup::new(Box::new(|| {
+            util::spawn("polybar")
+            // util::spawn("/home/heitor/.config/polybar/launch.sh --hack")
+            // util::spawn("/home/heitor/.config/polybar/launch.sh --blocks")
+        })),
         // OnStartup::new(Box::new(|| {
         //     util::spawn("picom") // not working
         // })),
@@ -85,7 +87,7 @@ fn main() {
             .execute(Box::new(|_| util::spawn("alacritty"))),
 
         Keybinding::new()
-            .on(&[modkey], "Tag")
+            .on(&[modkey], "Tab")
             .description("Start rofi")
             .execute(Box::new(|_| util::spawn("rofi -show drun"))),
 
@@ -105,14 +107,28 @@ fn main() {
 
         Keybinding::new()
             .on(&[modkey], "End")
-            .description("Kill the focused client on the current tag.")
+            .description("Kill the focused client.")
             .execute(Box::new(|ctx: EventContext| {
-                let screen = ctx.screen.lock().unwrap();
+                let mut screen = ctx.screen.lock().unwrap();
 
-                let tag = screen.get_focused_tag()?;
-                if let Ok(c) = tag.get_focused_client() {
-                    c.kill(&ctx.conn);
-                }
+                let tag = screen.get_focused_tag_mut()?;
+                let tag_id = tag.id;
+
+                let client = match tag.get_focused_client() {
+                    Ok(c) => c.clone(),
+                    Err(_) => return Ok(()),
+                };
+
+                tag.unmanage_client(client.id);
+                client.kill(&ctx.conn);
+
+                // Focus the master (first) client if any; otherwise, disable the focus.
+                match tag.get_first_client_when(|c| c.is_controlled()) {
+                    Ok(c) => _ = tag.set_focused_client(c.id),
+                    Err(_) => util::disable_input_focus(&ctx.conn),
+                };
+
+                _ = screen.refresh_tag(tag_id);
 
                 Ok(())
             })),
@@ -219,13 +235,7 @@ fn main() {
                 .description("View tag[i].")
                 .execute(Box::new(move |ctx: EventContext| {
                     let mut screen = ctx.screen.lock().unwrap();
-
-                    let curr_tag_id = screen.get_focused_tag().map(|t| t.id)?;
-                    if id != curr_tag_id {
-                        _ = screen.view_tag(id)?;
-                    }
-
-                    Ok(())
+                    screen.view_tag(id)
                 })),
 
             Keybinding::new()
@@ -238,7 +248,7 @@ fn main() {
                     if id != curr_tag_id {
                         _ = screen.move_focused_client(curr_tag_id, id)?;
                         // Optionally, follow
-                        // _ = screen.view_tag(id).map_err(|e| e.to_string())?;
+                        // _ = screen.view_tag(id)?;
                     }
 
                     Ok(())
@@ -251,9 +261,7 @@ fn main() {
         let mut screen = ctx.screen.lock().unwrap();
 
         let tag = screen.get_focused_tag_mut()?;
-        let focus_id = tag.get_focused_client().map_or(0, |c| c.id);
-
-        if focus_id != info.c_id {
+        if info.c_id != tag.get_focused_client().map_or(0, |c| c.id) {
             tag.set_focused_client_if(info.c_id, |c| c.is_controlled());
         }
 

@@ -1,17 +1,20 @@
 mod action;
-mod state;
 mod kind;
+mod rect;
+mod state;
 mod util;
 
-use xcb_util::ewmh;
+use xcb_util::{ewmh, icccm};
+
+use crate::util as gutil; // TODO: change this!!!!!!
 
 pub use crate::client::{
     action::ClientAction,
-    state::ClientState,
     kind::ClientType,
+    rect::ClientRect,
+    state::ClientState,
     util::ClientPadding,
 };
-
 
 /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
 /// `event.event()` in XCB events.
@@ -29,12 +32,21 @@ pub struct Client {
     /// The `WM_CLASS` of the client.
     pub wm_class: Option<String>,
 
+    /// The `WM_NAME` of the client.
+    pub wm_name: Option<String>,
+
     pub padding: ClientPadding,
+
+    pub rect: ClientRect,
 
     is_controlled: bool,
 
-    // TODO: docs
-    r#type: ClientType,
+    /// Represents the list of types associated with a client. Each type must be unique in the vector.
+    /// Typically, a client has a single unique type. However, in cases where a client has multiple types,
+    /// the first one is considered the most preferable.
+    ///
+    /// Refer to: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm45912237346656
+    types: Vec<ClientType>,
     
     /// Represents the list of current `xcb::WM_STATE` atoms of the client.
     /// Each state must be unique in the vector.
@@ -56,20 +68,76 @@ pub struct Client {
     ///
     /// Refer to: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142837824
     allowed_actions: Vec<ClientAction>,
+
+    protocols: Vec<u32>,
 }
 
 impl Client {
-    pub fn new(id: ClientID) -> Self {
-        Client { 
+    pub fn new(conn: &ewmh::Connection, id: ClientID) -> Self {
+        let mut client = Self {
             id,
-            is_controlled: true,
+            is_controlled: false,
             padding: ClientPadding { top: 0, bottom: 0, left: 0, right: 0 },
-            r#type: ClientType::Normal,
             states: vec![],
             allowed_actions: vec![],
+            types: vec![],
+            protocols: vec![],
             wm_class: None,
             wm_pid: None,
+            wm_name: None,
+            rect: ClientRect {
+                x: 0,
+                y: 0,
+                w: 0,
+                h: 0,
+            },
+        };
+
+        if let Ok(r) = icccm::get_wm_class(conn, id).get_reply() {
+            client.wm_class = Some(r.class().to_owned());
         }
+
+        if let Ok(r) = icccm::get_wm_name(conn, id).get_reply() {
+            client.wm_name = Some(r.name().to_owned());
+        }
+
+        if let Ok(p) = ewmh::get_wm_pid(conn, id).get_reply() {
+            client.wm_pid = Some(p);
+        }
+
+        if let Ok(s) = ewmh::get_wm_strut_partial(conn, id).get_reply() {
+            client.padding.top = s.top;
+            client.padding.bottom = s.bottom;
+            client.padding.left = s.left;
+            client.padding.right = s.right;
+        };
+
+        // TODO: maybe a custom enum with the supported protocols?
+        client.protocols = xcb_util::icccm::get_wm_protocols(conn, id, conn.WM_PROTOCOLS())
+            .get_reply()
+            .map_or(
+                vec![],
+                |p| p.atoms().to_vec(),
+            );
+
+        client.types = ClientType::from_atoms(conn, id);
+
+        client.allow_action(conn, ClientAction::Close);
+        if client.preferable_type().is_some_and(|t| t != ClientType::Dock) {
+            client.is_controlled = true;
+            client.allow_actions(
+                conn,
+                vec![
+                    ClientAction::Maximize,
+                    ClientAction::Fullscreen,
+                    ClientAction::ChangeTag,
+                    ClientAction::Resize,
+                    ClientAction::Move,
+                ],
+            );
+        }
+
+        client
     }
 
     /// Maps a window.
@@ -80,12 +148,6 @@ impl Client {
     /// Unmaps a window.
     pub fn unmap(&self, conn: &ewmh::Connection) {
         xcb::unmap_window(conn, self.id);
-    }
-
-    /// Returns whether the client needs control.
-    #[inline]
-    pub fn is_controlled(&self) -> bool {
-        self.is_controlled
     }
 
     pub fn set_border(&self, conn: &ewmh::Connection, color: u32) {
@@ -105,21 +167,42 @@ impl Client {
         );
     }
 
-    /// Sends a destroy notification to the window manager with the client's window ID.
-    pub fn kill(&self, conn: &ewmh::Connection) {
-        xcb::destroy_window(conn, self.id);
+    pub fn has_protocol(&self, atom: xcb::Atom) -> bool {
+        self.protocols.contains(&atom)
     }
 
-    /// TODO: rename it!
-    pub fn enable_event_mask(&self, conn: &ewmh::Connection) {
-        xcb::change_window_attributes(
-            conn,
-            self.id,
-            &[(
-                xcb::CW_EVENT_MASK,
-                xcb::EVENT_MASK_PROPERTY_CHANGE
-                | xcb::EVENT_MASK_STRUCTURE_NOTIFY,
-            )],
-        );
+    pub fn kill(&self, conn: &ewmh::Connection) {
+        let wm_delete_window = gutil::get_atom(conn, "WM_DELETE_WINDOW");
+
+        if self.has_protocol(wm_delete_window) {
+            let event = xcb::ClientMessageEvent::new(
+                32,
+                self.id,
+                conn.WM_PROTOCOLS(),
+                xcb::ClientMessageData::from_data32([
+                    wm_delete_window,
+                    xcb::CURRENT_TIME,
+                    xcb::NONE,
+                    xcb::NONE,
+                    xcb::NONE,
+                ]),
+            );
+
+            // TODO: kill with PID when this event fails
+            xcb::send_event(
+                &conn,
+                false,
+                self.id,
+                xcb::EVENT_MASK_NO_EVENT,
+                &event,
+            );
+        } else {
+            xcb::kill_client(conn, self.id);
+        }
+    }
+
+    #[inline(always)]
+    pub fn is_controlled(&self) -> bool {
+        self.is_controlled
     }
 }

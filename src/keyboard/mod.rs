@@ -1,4 +1,3 @@
-mod callback;
 mod keybinding;
 mod util;
 
@@ -13,10 +12,10 @@ use crate::{
 };
 
 pub use crate::keyboard::{
-    callback::FnOnKeypress,
     keybinding::{
         Keybinding,
         KeybindingBuilder,
+        FnOnKeypress,
     },
     util::KeyCombination,
 };
@@ -25,7 +24,7 @@ pub struct Keyboard {
     conn: Arc<ewmh::Connection>,
 
     // TODO: There is probably a better way to hash the keypress action without a struct for this.
-    actions: HashMap<KeyCombination, Box<dyn FnOnKeypress>>,
+    actions: HashMap<KeyCombination, Keybinding>,
 }
 
 impl Keyboard {
@@ -38,7 +37,7 @@ impl Keyboard {
 
     pub fn trigger(&self, ctx: EventContext, combination: KeyCombination) -> Result<(), Error> {
         match self.actions.get(&combination) {
-            Some(cb) => cb.call(ctx),
+            Some(cb) => cb.callback.call(ctx),
             None => Err(Error::Custom("hahaha".to_owned())),
         }
     }
@@ -75,7 +74,7 @@ impl Keyboard {
     pub fn append_keybindings(&mut self, keybindings: &[Keybinding]) {
         let key_symbols = keysyms::KeySymbols::new(&self.conn);
 
-        for kb in keybindings.iter() {
+        for kb in keybindings.iter().cloned() {
             let keycode = self.grab_key(&key_symbols, kb.modkeys, kb.key.as_str()).unwrap();
 
             let combination = KeyCombination {
@@ -83,7 +82,7 @@ impl Keyboard {
                 modifier: kb.modkeys,
             };
 
-            self.actions.insert(combination, dyn_clone::clone_box(&*kb.callback));
+            self.actions.insert(combination, kb);
         }
 
         self.conn.flush();

@@ -1,4 +1,20 @@
-use crate::keyboard::FnOnKeypress;
+use crate::{
+    event::EventContext,
+    errors::Error,
+};
+
+pub trait FnOnKeypress: dyn_clone::DynClone {
+    fn call(&self, ctx: EventContext) -> Result<(), Error>;
+}
+
+impl<F> FnOnKeypress for F
+where 
+    F: Fn(EventContext) -> Result<(), Error> + Clone 
+{
+    fn call(&self, ctx: EventContext) -> Result<(), Error> {
+        self(ctx)
+    }
+}
 
 pub struct Keybinding {
     /// Callback function to be executed when the key is pressed.
@@ -31,6 +47,18 @@ impl Keybinding {
     /// Use `KeybindingBuilder::execute()` to set the callback and complete the build process.
     pub fn new() -> KeybindingBuilder {
         KeybindingBuilder::new()
+    }
+}
+
+impl Clone for Keybinding {
+    fn clone(&self) -> Self {
+        Self {
+            key: self.key.clone(),
+            modkeys: self.modkeys.clone(),
+            description: self.description.clone(),
+            group: self.group.clone(),
+            callback: dyn_clone::clone_box(&*self.callback),
+        }
     }
 }
 

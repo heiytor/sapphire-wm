@@ -2,7 +2,7 @@ mod callback;
 
 use std::sync::Arc;
 
-use xcb_util::ewmh;
+use xcb_util::{ewmh, cursor};
 
 use crate::{
     util,
@@ -73,6 +73,15 @@ impl Mouse {
         };
     
         self.events.push(e);
+    }
+
+    /// Creates and defines the cursor for the root(s) window. It uses the default `left_ptr` font.
+    pub fn create_cursor(&self, root: u32) -> Result<(), Error> {
+        let cursor = cursor::create_font_cursor(&self.conn, xcb_util::cursor::LEFT_PTR);
+
+        xcb::change_window_attributes_checked(&self.conn, root, &[(xcb::CW_CURSOR, cursor)])
+            .request_check()
+            .map_err(|e| Error::Custom(format!("Unable to set the cursor font. Err={}", e.to_string())))
     }
 
     /// Register a callback `cb` to be executed when the event `e` is triggered.

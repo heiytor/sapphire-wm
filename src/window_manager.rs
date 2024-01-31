@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use xcb_util::{ewmh, cursor};
+use xcb_util::ewmh;
 
 use crate::{
     mouse::{
@@ -36,21 +36,28 @@ pub struct WindowManager {
 
 impl WindowManager {
     pub fn new(config: Config) -> Self {
-        let (xcb_conn, _) = xcb::Connection::connect(None).unwrap();
+        let (conn, conn_num) = xcb::Connection::connect(None).unwrap();
+        let conn = Arc::new(ewmh::Connection::connect(conn).map_err(|(e, _)| e).unwrap());
 
-        let conn = Arc::new(ewmh::Connection::connect(xcb_conn).map_err(|(e, _)| e).unwrap());
         let config = Arc::new(config);
+        let mouse = Mouse::new(conn.clone());
 
         Screen::set_defaults(&conn, 0, 0);
-        let screen = Screen::new(0, conn.clone(), config.clone());
+
+        let screen = conn.get_setup().roots().nth(conn_num as usize).unwrap();
+        let screen = Screen::new(conn.clone(), conn_num, screen, config.clone());
+        // Configure the cursor of the screen.
+        _ = mouse
+            .create_cursor(screen.root)
+            .map_err(|e| util::notify_error(e.to_string()));
 
         conn.flush();
 
         WindowManager {
             startup_actions: Vec::new(),
-            mouse: Mouse::new(conn.clone()),
             keyboard: Keyboard::new(conn.clone()),
             screen: Arc::new(Mutex::new(screen)),
+            mouse,
             config,
             conn,
         }
@@ -68,11 +75,6 @@ impl WindowManager {
     /// Starts the Sapphire. Binds the registered keys and actions, starts the programs
     /// needed at startup, and initializes the event loop.
     pub fn run(&mut self) {
-        // Configure the mouse cursor.
-        let cursor = cursor::create_font_cursor(&self.conn, xcb_util::cursor::LEFT_PTR);
-        _ = xcb::change_window_attributes_checked(&self.conn, util::get_screen(&self.conn).root(), &[(xcb::CW_CURSOR, cursor)])
-            .request_check()
-            .map_err(|_| panic!("Unable to set cursor icon."));
 
         for action in self.startup_actions.iter() {
             _ = action.call().map_err(|e| util::notify_error(e.to_string()));
@@ -83,6 +85,7 @@ impl WindowManager {
         loop {
             if let Some(e) = self.conn.wait_for_event() {
                 self.handle(e);
+                self.conn.flush();
             }
         }
     }
@@ -90,13 +93,16 @@ impl WindowManager {
 
 impl WindowManager {
     fn handle(&self, e: xcb::GenericEvent) {
-        // let event_type = e.response_type() & !0x80;
         let ev = Event::from(e.response_type());
         log::trace!("event received. event_type={}", ev);
 
         let ctx = EventContext::new(self.conn.clone(), self.screen.clone());
 
         match ev {
+            Event::DestroyNotify => {
+                let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&e) };
+                _ = handlers::on_destroy_notify(ctx, e);
+            },
             Event::ClientMessage => {
                 let e: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_client_message(e, ctx);
@@ -109,10 +115,6 @@ impl WindowManager {
                 let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_map_request(ctx, e);
             },
-            Event::DestroyNotify => {
-                let e: &xcb::DestroyNotifyEvent = unsafe { xcb::cast_event(&e) };
-                _ = handlers::on_destroy_notify(e, ctx);
-            }
             Event::KeyPress => {
                 let e: &xcb::KeyPressEvent = unsafe { xcb::cast_event(&e) };
 
@@ -135,11 +137,7 @@ impl WindowManager {
                     .trigger_with(MouseEvent::Click, ctx, inf)
                     .map_err(|e| util::notify_error(e.to_string()));
             },
-            _ => {
-                // println!["unexpected event"];
-            },
+            _ => (),
         };
-
-        self.conn.flush();
     }
 }
