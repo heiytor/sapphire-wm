@@ -1,8 +1,19 @@
 use crate::{
-    layout::Layout,
     client::Client,
+    layout::Layout,
+    tag::TagGeometry,
 };
 
+///  __________   __________
+/// |  Master  | |  Window  |
+/// |  window  | |          |
+/// |          | |          |
+/// |          | |__________|
+/// |          |  __________
+/// |          | |  Window  |
+/// |          | |          |
+/// |          | |          |
+/// |__________| |__________|
 pub struct LayoutTile {}
 
 impl LayoutTile {
@@ -12,52 +23,29 @@ impl LayoutTile {
 }
 
 impl Layout for LayoutTile {
-    fn resize_clients(&self, clients: &mut Vec<&mut Client>) {
-        // let border_size = config.border.size;
-        //
-        // // ....
-        // let screen = util::get_screen(conn);
-        // let screen_w = screen.width_in_pixels() as u32;
-        // let screen_h = screen.height_in_pixels() as u32;
-        //
-        // let padding_top = clients.iter().map(|c| c.padding.top).max().unwrap_or(0);
-        // let padding_bottom = clients.iter().map(|c| c.padding.bottom).max().unwrap_or(0);
-        // let padding_left = clients.iter().map(|c| c.padding.left).max().unwrap_or(0);
-        // let padding_right = clients.iter().map(|c| c.padding.right).max().unwrap_or(0);
-        //
-        // // The available wimut dth and height represent the pixels available for drawing windows.
-        // // They are the total screen dimensions minus the specified paddings.
-        // let available_w = screen_w - padding_left - padding_right;
-        // let available_h = screen_h - padding_top - padding_bottom;
-        //
-        // // Starting tilling at top-right
-        // let mut window_x: u32 = config.gap_size;
-        // let mut window_y: u32 = config.gap_size + padding_top;
-        //
-        // // ...
-        // let mut window_h: u32 = available_h - (border_size * 2) - (config.gap_size * 2);
-        // let mut window_w: u32 = if normal_clients.len() == 1 { 
-        //     available_w - (border_size * 2) - (config.gap_size * 2)
-        // } else { 
-        //     available_w / 2 - border_size - config.gap_size
-        // };
+    fn arrange(&self, geometry: TagGeometry, useless_gap: u32, clients: &mut Vec<&mut Client>) {
+        let size = clients.len() as u32;
 
-        clients
-            .iter_mut()
-            .for_each(|c| {
-                // if i > 0 {
-                //     c.rect.w = (available_w / 2) - (border_size * 2) - (config.gap_size * 2);
-                //     c.rect.x = available_w / 2 + config.gap_size;
-                //
-                //     let height_per_window = available_h / (normal_clients.len() - 1) as u32;
-                //
-                //     c.rect.y = (height_per_window * (i - 1) as u32) + padding_top + config.gap_size;
-                //     c.rect.h = if client.id == normal_clients.last().unwrap().id {
-                //         height_per_window - (border_size * 2) - (config.gap_size * 2)
-                //     } else {
-                //         height_per_window - border_size - config.gap_size
-                //     };
-                // }
-            });
+        // gap 6 border 2
+
+        for (i, c) in clients.iter_mut().enumerate() {
+            // TODO: padding_left
+            c.geo.x = if i == 0 { useless_gap } else { (geometry.avail_w / 2) + useless_gap };
+            c.geo.w = (geometry.avail_w / 2) - (useless_gap * 2) - (c.geo.border * 2);
+            // c.geometry.x = if i == 0 { 6 } else { 674 + 24 };
+            // c.geometry.width = (1380 / 2) - (6 * 2) - (2 * 2);
+            log::info!("{} {} {}", i, c.geo.x, c.geo.w);
+
+            let mut height_per_window = geometry.avail_h;
+            if i != 0 {
+                height_per_window /= size - 1
+            };
+
+            c.geo.y = (height_per_window * i.checked_sub(1).unwrap_or(0) as u32) + geometry.padding_top() + useless_gap;
+            c.geo.h = height_per_window - (c.geo.border * 2) - (useless_gap * 2);
+            
+            c.geo.x = c.geo.x.max(1);
+            c.geo.y = c.geo.y.max(1);
+        }
     }
 }

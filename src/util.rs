@@ -14,6 +14,38 @@ pub mod modkeys {
     pub const MODKEY_CONTROL: u16 = xcb::MOD_MASK_CONTROL as u16;
 }
 
+pub mod math {
+    /// Calculates the target index in a cyclic sequence based on the sequence length
+    /// `s` and a relative "walk" `i`. Returns `None` when the sequence length `s` is 0.
+    /// Otherwise, it returns `Some(usize)` representing the adjusted index.
+    ///
+    /// The cyclic sequence is conceptually treated as a loop where walking beyond the
+    /// end of the sequence loops back to the beginning, and negative walks count
+    /// backward from the end of the sequence.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let s = 2;
+    /// let i = 1;
+    /// let target = cycle_idx(s, i);
+    /// assert_eq!(target, Some(2));
+    ///
+    /// let s = 2;
+    /// let i = 2;
+    /// let target = cycle_idx(s, i);
+    /// assert_eq!(target, Some(0));
+    /// ```
+    #[inline]
+    pub fn cycle_idx(s: usize, i: i32) -> Option<usize> {
+        if s > 1 {
+            Some((if i < 0 { i + s as i32 } else { i % s as i32 }) as usize)
+        } else {
+            None
+        }
+    }
+}
+
 pub enum Operation {
     Add,
     Remove,

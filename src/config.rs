@@ -1,35 +1,28 @@
+use std::sync::{RwLock, Arc};
+
+thread_local! {
+    static GLOBAL_CONFIG: RwLock<Arc<Config>> = RwLock::new(Arc::new(Config::default()))
+}
+
+#[derive(Default)]
 pub struct Config {
-    pub gap_size: u32,
-    pub border: Border,
-    pub tags: Vec<String>
+    pub useless_gap: u32,
+    pub border: ConfigBorder,
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            gap_size: 0,
-            border: Border {
-                size: 0,
-                active_color: 0x000000,
-                inactive_color: 0x000000,
-            },
-            tags: vec![
-                String::from("1"),
-                String::from("2"),
-                String::from("3"),
-                String::from("4"),
-                String::from("5"),
-                String::from("6"),
-                String::from("7"),
-                String::from("8"),
-                String::from("9"),
-            ],
-        }
+#[derive(Default)]
+pub struct ConfigBorder {
+    pub width: u32,
+    pub color_active: u32,
+    pub color_normal: u32,
+}
+
+impl Config {
+    pub fn set(self) {
+        GLOBAL_CONFIG.with(|c| *c.write().unwrap() = Arc::new(self))
     }
-}
 
-pub struct Border {
-    pub size: u32,
-    pub active_color: u32,
-    pub inactive_color: u32,
+    pub fn current() -> Arc<Config> {
+        GLOBAL_CONFIG.with(|c| c.read().unwrap().clone())
+    }
 }

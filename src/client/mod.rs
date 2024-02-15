@@ -1,8 +1,7 @@
 mod action;
 mod kind;
-mod rect;
+mod geometry;
 mod state;
-mod util;
 
 use xcb_util::{ewmh, icccm};
 
@@ -11,9 +10,8 @@ use crate::util as gutil; // TODO: change this!!!!!!
 pub use crate::client::{
     action::ClientAction,
     kind::ClientType,
-    rect::ClientRect,
+    geometry::ClientGeometry,
     state::ClientState,
-    util::ClientPadding,
 };
 
 /// Represents the ID of the client. Typically the `event.window()`, `event.child()` or
@@ -35,9 +33,7 @@ pub struct Client {
     /// The `WM_NAME` of the client.
     pub wm_name: Option<String>,
 
-    pub padding: ClientPadding,
-
-    pub rect: ClientRect,
+    pub geo: ClientGeometry,
 
     is_controlled: bool,
 
@@ -77,19 +73,20 @@ impl Client {
         let mut client = Self {
             id,
             is_controlled: false,
-            padding: ClientPadding { top: 0, bottom: 0, left: 0, right: 0 },
-            states: vec![],
+            states: vec![ClientState::Tile],
             allowed_actions: vec![],
             types: vec![],
             protocols: vec![],
             wm_class: None,
             wm_pid: None,
             wm_name: None,
-            rect: ClientRect {
+            geo: ClientGeometry {
                 x: 0,
                 y: 0,
                 w: 0,
                 h: 0,
+                border: 0,
+                paddings: [0, 0, 0, 0],
             },
         };
 
@@ -106,10 +103,10 @@ impl Client {
         }
 
         if let Ok(s) = ewmh::get_wm_strut_partial(conn, id).get_reply() {
-            client.padding.top = s.top;
-            client.padding.bottom = s.bottom;
-            client.padding.left = s.left;
-            client.padding.right = s.right;
+            client.geo.paddings[0] = s.top;
+            client.geo.paddings[1] = s.bottom;
+            client.geo.paddings[2] = s.left;
+            client.geo.paddings[3] = s.right;
         };
 
         // TODO: maybe a custom enum with the supported protocols?
@@ -121,9 +118,11 @@ impl Client {
             );
 
         client.types = ClientType::from_atoms(conn, id);
-
         client.allow_action(conn, ClientAction::Close);
-        if client.preferable_type().is_some_and(|t| t != ClientType::Dock) {
+
+        if client.preferable_type().is_some_and(|t| t == ClientType::Dock) {
+            client.add_state(conn, ClientState::Sticky);
+        } else {
             client.is_controlled = true;
             client.allow_actions(
                 conn,

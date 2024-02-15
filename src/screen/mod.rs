@@ -6,19 +6,24 @@ use crate::{
     tag::{
         Tag, TagID,
     },
-    config::Config,
     errors::Error,
     client::Client,
     util,
-    screen::utils::redraw, layout::LayoutTile,
+    layout::LayoutTile,
 };
 
-pub mod utils;
+#[derive(Clone)]
+pub struct ScreenGeometry {
+    pub width: u32,
+    pub height: u32,
+}
 
 pub struct Screen {
     pub id: i32,
 
     pub root: u32,
+
+    pub geo: ScreenGeometry,
 
     /// ID of the currently focused tag. Retrieve the current tag using `Self::get_focused_tag[mut]()`,
     /// as the ID may point to an non existent tag.
@@ -38,12 +43,10 @@ pub struct Screen {
     /// Use either `Manager::sticky_tag()` or `Manager::sticky_tag_mut()` to retrieve such
     /// clients.
     tags: Vec<Tag>,
-
-    config: Arc<Config>,
 }
 
 impl Screen {
-    pub fn new(conn: Arc<ewmh::Connection>, id: i32, screen: xcb::Screen, config: Arc<Config>) -> Self {
+    pub fn new(conn: Arc<ewmh::Connection>, id: i32, screen: xcb::Screen) -> Self {
         if let Err(cookie) = xcb::change_window_attributes_checked(
             &conn,
             screen.root(),
@@ -95,15 +98,27 @@ impl Screen {
             ],
         );
 
+        let tags = vec![
+            String::from("1"),
+            String::from("2"),
+            String::from("3"),
+            String::from("4"),
+            String::from("5"),
+            String::from("6"),
+            String::from("7"),
+            String::from("8"),
+            String::from("9"),
+        ];
+
         // The screen must have at least one tag.
-        let mut tags = if !config.tags.is_empty() {
-            config.tags
+        let mut tags = if !tags.is_empty() {
+            tags
                 .iter()
                 .enumerate()
-                .map(|(i, t)| Tag::new(i as u32, t, conn.clone()))
+                .map(|(i, a)| Tag::new(conn.clone(), i as u32, a, screen.width_in_pixels() as u32, screen.height_in_pixels() as u32))
                 .collect()
         } else {
-            vec![Tag::new(0, "1", conn.clone())]
+            vec![Tag::new(conn.clone(), 0, "1", screen.width_in_pixels() as u32, screen.height_in_pixels() as u32)]
         };
     
         ewmh::set_number_of_desktops(&conn, id, tags.len() as u32);
@@ -113,15 +128,18 @@ impl Screen {
         // Since the clients contained in this tag will be shown in all other tags the ID of the
         // tag must be set to the maximum 32-bit number.
         // Reference: https://specifications.freedesktop.org/wm-spec/wm-spec-1.3.html#idm46201142872912
-        tags.push(Tag::new(0xFFFFFFFF, "sticky_clients", conn.clone()));
+        tags.push(Tag::new(conn.clone(), 0xFFFFFFFF, "sticky_clients", 0, 0));
 
         Self {
             id,
             root: screen.root(),
             conn,
             tags,
-            config,
             focused_tag_id: 0, // TODO: config.default_focused_tag_id
+            geo: ScreenGeometry {
+                width: screen.width_in_pixels() as u32,
+                height: screen.height_in_pixels() as u32,
+            },
         }
     }
 
@@ -158,46 +176,50 @@ impl Screen {
     /// Returns a immutable reference to the specified tag or `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
     pub fn get_tag(&self, id: u32) -> Result<&Tag, Error> {
-        self.tags.iter().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
+        self.tags
+            .iter()
+            .find(|t| t.id == id)
+            .ok_or(Error::TagNotFound(id))
     }
 
     /// Returns a mutable reference to the specified tag or `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
     pub fn get_tag_mut(&mut self, id: u32) -> Result<&mut Tag, Error> {
-        self.tags.iter_mut().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
+        self.tags
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or(Error::TagNotFound(id))
     }
 
     /// Returns a immutable reference to the focused tag or `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
     pub fn get_focused_tag(&self) -> Result<&Tag, Error> {
         let id = self.focused_tag_id;
-        self.tags.iter().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
+
+        self.tags
+            .iter()
+            .find(|t| t.id == id)
+            .ok_or(Error::TagNotFound(id))
     }
 
     /// Returns a mutable reference to the focused tag or `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
     pub fn get_focused_tag_mut(&mut self) -> Result<&mut Tag, Error> {
         let id = self.focused_tag_id;
-        self.tags.iter_mut().find(|t| t.id == id).ok_or(Error::TagNotFound(id))
+
+        self.tags
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or(Error::TagNotFound(id))
     }
 
     /// Readjust the layout of the tag with ID `id`. Returns `Error::TagNotFound(id)` when the
     /// provided ID does not exist.
-    pub fn refresh_tag(&mut self, id: TagID) -> Result<(), Error> {
-        let mut sticky = self.sticky_tag_mut().clone_clients();
+    pub fn arrange_tag(&mut self, id: TagID) -> Result<(), Error> {
+        let sticky = self.sticky_tag_mut().clone();
 
-        let tag = self.get_tag_mut(id)?;
-        crate::tag::resize_tag(tag, &LayoutTile::new(), &sticky);
-        
-        sticky.extend(self.get_tag(id).unwrap().clone_clients());
-    
-        // Ensures that the sticky clients are drawn.
-        // let clients = tag.clone_clients();
-        // let mut clients: Vec<Client> = self.sticky_tag().clone_clients();
-        // clients.extend(self.get_tag(id).unwrap().clone_clients());
-
-        redraw(&self.conn, sticky, &self.config);
-        self.refresh();
+        self.get_tag_mut(id)?
+            .arrange(&LayoutTile::new(), &sticky);
 
         Ok(())
     }
@@ -231,7 +253,7 @@ impl Screen {
             tag.unmap();
         }
 
-        _ = self.refresh_tag(id);
+        _ = self.arrange_tag(id);
         self.set_focused_tag(id);
 
         Ok(())
@@ -261,7 +283,7 @@ impl Screen {
 
         // Set the most recent client as input focus on the source tag if any.
         if let Ok(c) = s_tag.get_first_client_when(|c| c.is_controlled()) {
-            s_tag.set_focused_client(c.id);
+            s_tag.focus_client(c.id);
         } else {
             util::disable_input_focus(&conn)
         }
@@ -270,11 +292,11 @@ impl Screen {
         let d_tag = self.get_tag_mut(dest).unwrap();
 
         d_tag.manage_client(client);
-        d_tag.set_focused_client(client_id);
+        d_tag.focus_client(client_id);
         util::set_client_tag(&conn, client_id, dest);
 
-        _ = self.refresh_tag(dest);
-        _ = self.refresh_tag(src);
+        _ = self.arrange_tag(dest);
+        _ = self.arrange_tag(src);
 
         Ok(())
     }

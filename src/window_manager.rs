@@ -13,7 +13,6 @@ use crate::{
         EventContext,
         MouseEvent,
     },
-    config::Config,
     action::on_startup::OnStartup,
     screen::Screen,
     handlers, keyboard::Keyboard,
@@ -27,25 +26,22 @@ pub struct WindowManager {
 
     pub keyboard: Keyboard,
 
-    pub config: Arc<Config>,
-
     startup_actions: Vec<OnStartup>,
     
     screen: Arc<Mutex<Screen>>,
 }
 
 impl WindowManager {
-    pub fn new(config: Config) -> Self {
+    pub fn new() -> Self {
         let (conn, conn_num) = xcb::Connection::connect(None).unwrap();
         let conn = Arc::new(ewmh::Connection::connect(conn).map_err(|(e, _)| e).unwrap());
 
-        let config = Arc::new(config);
         let mouse = Mouse::new(conn.clone());
 
         Screen::set_defaults(&conn, 0, 0);
 
         let screen = conn.get_setup().roots().nth(conn_num as usize).unwrap();
-        let screen = Screen::new(conn.clone(), conn_num, screen, config.clone());
+        let screen = Screen::new(conn.clone(), conn_num, screen);
         // Configure the cursor of the screen.
         _ = mouse
             .create_cursor(screen.root)
@@ -58,7 +54,6 @@ impl WindowManager {
             keyboard: Keyboard::new(conn.clone()),
             screen: Arc::new(Mutex::new(screen)),
             mouse,
-            config,
             conn,
         }
     }

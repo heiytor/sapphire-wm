@@ -1,5 +1,3 @@
-use log::info;
-
 use crate::{
     event::{EventContext, ClientMessage},
     client::{
@@ -19,14 +17,18 @@ pub fn on_destroy_notify(ctx: EventContext, e: &xcb::DestroyNotifyEvent) -> Resu
     // focus the master (first) client if any; otherwise, disable the focus.
     if tag.get_focused_client().is_ok_and(|c| c.id == e.window()) {
         match tag.get_first_client_when(|c| c.is_controlled()) {
-            Ok(c) => _ = tag.set_focused_client(c.id),
+            Ok(c) => _ = tag.focus_client(c.id),
             Err(_) => util::disable_input_focus(&ctx.conn),
         };
     }
 
     tag.unmanage_client(e.window());
 
-    _ = screen.refresh_tag(tag_id);
+    // TODO: remove this
+    if tag.alias != "sticky_clients" {
+        _ = screen.arrange_tag(tag_id);
+    }
+    screen.refresh();
 
     Ok(())
 }
@@ -37,9 +39,10 @@ pub fn on_map_request(ctx: EventContext, e: &xcb::MapRequestEvent) -> Result<(),
     // The tag represents on which tag we should manage the client.
     // Generally, the sticky tag is reserved for storing clients that must be kept on the
     // screen independently of the current tag.
-    let tag = match util::window_has_type(&ctx.conn, e.window(), ctx.conn.WM_WINDOW_TYPE_DOCK()) {
-        true => screen.sticky_tag_mut(),
-        false => screen.get_focused_tag_mut()?,
+    let tag = if util::window_has_type(&ctx.conn, e.window(), ctx.conn.WM_WINDOW_TYPE_DOCK()) {
+        screen.sticky_tag_mut()
+    } else {
+        screen.get_focused_tag_mut()?
     };
     
     xcb::map_window(&ctx.conn, e.window());
@@ -52,10 +55,14 @@ pub fn on_map_request(ctx: EventContext, e: &xcb::MapRequestEvent) -> Result<(),
 
     util::set_client_tag(&ctx.conn, client.id, tag.id);
     tag.manage_client(client);
-    tag.set_focused_client_if(e.window(), |c| c.is_controlled());
+    tag.focus_client_if(e.window(), |c| c.is_controlled());
 
-    let tag_id = tag.id;
-    _ = screen.refresh_tag(tag_id);
+    // TODO: remove this
+    if tag.alias != "sticky_clients" {
+        let tag_id = tag.id;
+        _ = screen.arrange_tag(tag_id);
+    }
+    screen.refresh();
 
     Ok(())
 }
@@ -115,9 +122,8 @@ pub fn on_client_message(e: &xcb::ClientMessageEvent, ctx: EventContext) -> Resu
 
                 if let Ok(c) = t.get_client_mut(e.window()) {
                     if state == ctx.conn.WM_STATE_FULLSCREEN() {
-                        log::info!("STATE FULLSCREEN");
                         _ = c.set_state(&ctx.conn, ClientState::Fullscreen, action);
-                        _ = screen.refresh_tag(t_id);
+                        _ = screen.arrange_tag(t_id);
                     }
                 }
             }

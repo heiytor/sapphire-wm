@@ -12,16 +12,17 @@ mod tag;
 mod util;
 mod event;
 
-use action::on_startup::OnStartup;
-use keyboard::Keybinding;
-use mouse::MouseInfo;
 
 use crate::{
+    action::on_startup::OnStartup,
     client::{
         ClientAction,
         ClientState,
     },
-    config::Config,
+    config::{
+        Config,
+        ConfigBorder,
+    },
     event::{
         EventContext,
         MouseEvent,
@@ -30,43 +31,34 @@ use crate::{
         modkeys,
         Operation,
     },
+    keyboard::Keybinding,
+    mouse::MouseInfo,
     window_manager::WindowManager,
-    tag::Dir,
+    errors::Error,
 };
 
 fn main() {
+    Config::set(Config {
+        useless_gap: 6,
+        border: ConfigBorder {
+            width: 2,
+            color_active: 0xff9933,
+            color_normal: 0x8813d2,
+        },
+    });
+
     env_logger::init();
 
-    let mut config = Config::default();
-
-    let tags = vec![
-        String::from("1"),
-        String::from("2"),
-        String::from("3"),
-        String::from("4"),
-        String::from("5"),
-        String::from("6"),
-        String::from("7"),
-        String::from("8"),
-        String::from("9"),
-    ];
-
-    config.border.size = 2;
-    config.border.active_color = 0xff00f7;
-    config.border.inactive_color = 0xfff200;
-    config.gap_size = 6;
-    config.tags = tags.clone();
-
-    let mut wm = WindowManager::new(config);
+    let mut wm = WindowManager::new();
 
     wm.on_startup(&[
         OnStartup::new(Box::new(|| {
             util::spawn("feh --bg-scale /home/heitor/Downloads/w.jpg")
         })),
         OnStartup::new(Box::new(|| {
-            util::spawn("polybar")
+            // util::spawn("polybar")
             // util::spawn("/home/heitor/.config/polybar/launch.sh --hack")
-            // util::spawn("/home/heitor/.config/polybar/launch.sh --blocks")
+            util::spawn("/home/heitor/.config/polybar/launch.sh --blocks")
         })),
         // OnStartup::new(Box::new(|| {
         //     util::spawn("picom") // not working
@@ -124,11 +116,11 @@ fn main() {
 
                 // Focus the master (first) client if any; otherwise, disable the focus.
                 match tag.get_first_client_when(|c| c.is_controlled()) {
-                    Ok(c) => _ = tag.set_focused_client(c.id),
+                    Ok(c) => _ = tag.focus_client(c.id),
                     Err(_) => util::disable_input_focus(&ctx.conn),
                 };
 
-                _ = screen.refresh_tag(tag_id);
+                _ = screen.arrange_tag(tag_id);
 
                 Ok(())
             })),
@@ -138,13 +130,7 @@ fn main() {
             .description("Move focus to left.")
             .execute(Box::new(|ctx: EventContext| {
                 let mut screen = ctx.screen.lock().unwrap();
-
-                let tag = screen.get_focused_tag_mut()?;
-
-                _ = tag.walk(1, Dir::Left, |c| c.is_controlled())
-                    .map(|wid| tag.set_focused_client(wid));
-
-                Ok(())
+                screen.get_focused_tag_mut()?.focus_client_byidx(-1, None)
             })),
 
         Keybinding::new()
@@ -152,13 +138,7 @@ fn main() {
             .description("Move focus to right.")
             .execute(Box::new(|ctx: EventContext| {
                 let mut screen = ctx.screen.lock().unwrap();
-
-                let tag = screen.get_focused_tag_mut()?;
-
-                _ = tag.walk(1, Dir::Right, |c| c.is_controlled())
-                    .map(|wid| tag.set_focused_client(wid));
-
-                Ok(())
+                screen.get_focused_tag_mut()?.focus_client_byidx(1, None)
             })),
 
         Keybinding::new()
@@ -172,7 +152,7 @@ fn main() {
 
                 if let (Ok(c1), Ok(c2)) = (tag.get_focused_client(), tag.get_first_client_when(|c| c.is_controlled())) {
                     _ = tag.swap(c1.id, c2.id);
-                    _ = screen.refresh_tag(tag_id);
+                    _ = screen.arrange_tag(tag_id);
                 }
 
                 Ok(())
@@ -193,7 +173,7 @@ fn main() {
                     }
 
                     c.set_state(&ctx.conn, ClientState::Fullscreen, Operation::Toggle)?;
-                    _ = screen.refresh_tag(tag_id);
+                    _ = screen.arrange_tag(tag_id);
                 }
 
                 Ok(())
@@ -214,7 +194,7 @@ fn main() {
                     }
 
                     c.set_state(&ctx.conn, ClientState::Maximized, Operation::Toggle)?;
-                    _ = screen.refresh_tag(tag_id);
+                    _ = screen.arrange_tag(tag_id);
                 }
 
                 Ok(())
@@ -222,7 +202,7 @@ fn main() {
     ]);
 
     // Bind MODKEY + i to desktop[i].
-    for id in 0..tags.len() as u32 {
+    for id in 0..9 as u32 {
         if id > 8 {
             break
         }
@@ -261,8 +241,8 @@ fn main() {
         let mut screen = ctx.screen.lock().unwrap();
 
         let tag = screen.get_focused_tag_mut()?;
-        if info.c_id != tag.get_focused_client().map_or(0, |c| c.id) {
-            tag.set_focused_client_if(info.c_id, |c| c.is_controlled());
+        if info.c_id != tag.get_focused_client()?.id {
+            tag.focus_client_if(info.c_id, |c| c.is_controlled());
         }
 
         Ok(())

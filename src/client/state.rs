@@ -56,8 +56,8 @@ impl Client {
     /// when the window manager needs to perform actions related to the client's state,
     /// use this function to determine which client's state to handle. When the client
     /// does not have any state, it returns `ClientState::Tile`.
-    pub fn last_state(&self) -> &ClientState {
-        self.states.last().unwrap_or(&ClientState::Tile)
+    pub fn get_state(&self) -> ClientState {
+        self.states.last().unwrap_or(&ClientState::Tile).clone()
     }
 
     /// Adds the specified `state` to the client's list of states if it is not already present. It
