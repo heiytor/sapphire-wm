@@ -32,9 +32,6 @@ impl Layout for LayoutTile {
             // TODO: padding_left
             c.geo.x = if i == 0 { useless_gap } else { (geometry.avail_w / 2) + useless_gap };
             c.geo.w = (geometry.avail_w / 2) - (useless_gap * 2) - (c.geo.border * 2);
-            // c.geometry.x = if i == 0 { 6 } else { 674 + 24 };
-            // c.geometry.width = (1380 / 2) - (6 * 2) - (2 * 2);
-            log::info!("{} {} {}", i, c.geo.x, c.geo.w);
 
             let mut height_per_window = geometry.avail_h;
             if i != 0 {

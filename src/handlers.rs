@@ -34,6 +34,8 @@ pub fn on_destroy_notify(ctx: EventContext, e: &xcb::DestroyNotifyEvent) -> Resu
 }
 
 pub fn on_map_request(ctx: EventContext, e: &xcb::MapRequestEvent) -> Result<(), Error> {
+    log::info!("new: {}", e.window());
+
     let mut screen = ctx.screen.lock().unwrap();
 
     // The tag represents on which tag we should manage the client.
@@ -67,19 +69,19 @@ pub fn on_map_request(ctx: EventContext, e: &xcb::MapRequestEvent) -> Result<(),
     Ok(())
 }
 
-pub fn on_configure_request(e: &xcb::ConfigureRequestEvent, ctx: EventContext) -> Result<(), Error> {
-    let mut values: Vec<(u16, u32)> = Vec::new();
-    let mut maybe_push = |mask: u16, value: u32| {
-        if e.value_mask() & mask > 0 {
-            values.push((mask, value));
-        }
-    };
+pub fn on_configure_request(e: &xcb::ConfigureNotifyEvent, ctx: EventContext) -> Result<(), Error> {
+    // let mut values: Vec<(u16, u32)> = Vec::new();
+    // let mut maybe_push = |mask: u16, value: u32| {
+    //     if e.value_mask() & mask > 0 {
+    //         values.push((mask, value));
+    //     }
+    // };
 
-    maybe_push(xcb::CONFIG_WINDOW_WIDTH as u16, e.width() as u32);
-    maybe_push(xcb::CONFIG_WINDOW_HEIGHT as u16, e.height() as u32);
-    maybe_push(xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, e.border_width() as u32);
-    maybe_push(xcb::CONFIG_WINDOW_SIBLING as u16, e.sibling() as u32);
-    maybe_push(xcb::CONFIG_WINDOW_STACK_MODE as u16, e.stack_mode() as u32);
+    // maybe_push(xcb::CONFIG_WINDOW_WIDTH as u16, e.width() as u32);
+    // maybe_push(xcb::CONFIG_WINDOW_HEIGHT as u16, e.height() as u32);
+    // maybe_push(xcb::CONFIG_WINDOW_BORDER_WIDTH as u16, e.border_width() as u32);
+    // maybe_push(xcb::CONFIG_WINDOW_SIBLING as u16, e.sibling() as u32);
+    // maybe_push(xcb::CONFIG_WINDOW_STACK_MODE as u16, e.stack_mode() as u32);
 
     // if util::window_has_type(&ctx.conn, e.window(), ctx.conn.WM_WINDOW_TYPE_DIALOG()) {
     //     let geometry = xcb::get_geometry(&ctx.conn, e.window()).get_reply().unwrap();
@@ -95,7 +97,7 @@ pub fn on_configure_request(e: &xcb::ConfigureRequestEvent, ctx: EventContext) -
     //     maybe_push(xcb::CONFIG_WINDOW_Y as u16, e.y() as u32);
     // }
 
-    xcb::configure_window(&ctx.conn, e.window(), &values);
+    // xcb::configure_window(&ctx.conn, e.window(), &values);
 
     Ok(())
 }

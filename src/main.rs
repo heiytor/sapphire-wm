@@ -34,7 +34,6 @@ use crate::{
     keyboard::Keybinding,
     mouse::MouseInfo,
     window_manager::WindowManager,
-    errors::Error,
 };
 
 fn main() {
@@ -82,20 +81,6 @@ fn main() {
             .on(&[modkey], "Tab")
             .description("Start rofi")
             .execute(Box::new(|_| util::spawn("rofi -show drun"))),
-
-        Keybinding::new()
-            .on(&[modkey], "End")
-            .description("Kill the focused client on the current tag.")
-            .execute(Box::new(|ctx: EventContext| {
-                let screen = ctx.screen.lock().unwrap();
-
-                let tag = screen.get_focused_tag()?;
-                if let Ok(c) = tag.get_focused_client() {
-                    c.kill(&ctx.conn);
-                }
-
-                Ok(())
-            })),
 
         Keybinding::new()
             .on(&[modkey], "End")
@@ -153,6 +138,7 @@ fn main() {
                 if let (Ok(c1), Ok(c2)) = (tag.get_focused_client(), tag.get_first_client_when(|c| c.is_controlled())) {
                     _ = tag.swap(c1.id, c2.id);
                     _ = screen.arrange_tag(tag_id);
+                    screen.refresh()
                 }
 
                 Ok(())

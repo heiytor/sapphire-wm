@@ -102,10 +102,14 @@ impl WindowManager {
                 let e: &xcb::ClientMessageEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_client_message(e, ctx);
             },
-            Event::ConfigureRequest => {
-                let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&e) };
+            Event::ConfigureNotify => {
+                let e: &xcb::ConfigureNotifyEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_configure_request(e, ctx);
             },
+            // Event::ConfigureRequest => {
+            //     let e: &xcb::ConfigureRequestEvent = unsafe { xcb::cast_event(&e) };
+            //     _ = handlers::on_configure_request(e, ctx);
+            // },
             Event::MapRequest => {
                 let e: &xcb::MapRequestEvent = unsafe { xcb::cast_event(&e) };
                 _ = handlers::on_map_request(ctx, e);

@@ -303,6 +303,8 @@ impl Screen {
 
     /// Refreshes the "_NET_CLIENT_LIST" with the current list of clients in all tags.
     pub fn refresh(&self) {
+        self.get_focused_tag().unwrap().clone_clients().iter().for_each(|c| log::info!("[f] client: {}", c.id));
+
         // TODO: make it less verbose and more performatic
         let mut clients: Vec<Client> = Vec::new();
         for t in self.tags.iter() {
@@ -312,7 +314,16 @@ impl Screen {
             }
         }
 
+        clients.iter().for_each(|c| log::info!("[s] client: {}", c.id));
+        clients.iter().rev().for_each(|c| log::info!("[s-r] client: {}", c.id));
+
         ewmh::set_client_list(
+            &self.conn,
+            0,
+            &clients.iter().map(|c| c.id).collect::<Vec<u32>>(),
+        );
+
+        ewmh::set_client_list_stacking(
             &self.conn,
             0,
             &clients.iter().map(|c| c.id).collect::<Vec<u32>>(),
